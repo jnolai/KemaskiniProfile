@@ -1,0 +1,19 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Customer accounts data - accessible for lookup, update, and admin management
+    match /accounts/{accountId} {
+      allow read, write: if true;
+    }
+    
+    // Audit logs for tracking updates & rewards
+    match /audit_logs/{logId} {
+      allow read, write: if true;
+    }
+
+    // App configurations (custom Excel columns metadata)
+    match /app_config/{configId} {
+      allow read, write: if true;
+    }
+  }
+}

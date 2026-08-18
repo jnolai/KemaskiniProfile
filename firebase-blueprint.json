@@ -1,0 +1,75 @@
+{
+  "entities": {
+    "CustomerAccount": {
+      "title": "CustomerAccount",
+      "description": "Maklumat akaun pelanggan untuk carian dan kemaskini profil",
+      "type": "object",
+      "properties": {
+        "noAkaun": { "type": "string", "description": "Nombor akaun pelanggan unik", "maxLength": 100 },
+        "nama": { "type": "string", "description": "Nama penuh pemilik akaun", "maxLength": 200 },
+        "kadPengenalan": { "type": "string", "description": "Nombor kad pengenalan pelanggan", "maxLength": 50 },
+        "status": { "type": "string", "description": "Status akaun (Aktif, Tertunggak, dll)", "maxLength": 50 },
+        "kategoriAkaun": { "type": "string", "description": "Kategori kediaman/komersial/industri", "maxLength": 100 },
+        "noTel": { "type": "string", "description": "Nombor telefon pelanggan", "maxLength": 50 },
+        "email": { "type": "string", "description": "Alamat emel pelanggan", "maxLength": 150 },
+        "lastUpdated": { "type": "string", "description": "Tarikh masa kemaskini terakhir ISO" },
+        "kemaskiniOleh": { "type": "string", "description": "Punca pihak yang membuat kemaskini", "maxLength": 100 },
+        "telahDikemaskini": { "type": "boolean", "description": "Penanda jika akaun telah dikemaskini" },
+        "updatedFields": { "type": "array", "description": "Senarai medan yang dikemaskini" },
+        "rawRowData": { "type": "object", "description": "Data lajur asal daripada fail Excel" },
+        "rewardStatus": { "type": "string", "description": "Status kelayakan hadiah pelanggan", "maxLength": 50 },
+        "rewardClaimedAt": { "type": "string", "description": "Tarikh masa tuntutan hadiah" },
+        "rewardEligibilityDate": { "type": "string", "description": "Tarikh kelayakan hadiah" },
+        "rewardCode": { "type": "string", "description": "Kod pengesahan hadiah unik", "maxLength": 50 },
+        "updateCount": { "type": "number", "description": "Bilangan kali akaun dikemaskini" }
+      },
+      "required": ["noAkaun", "nama"]
+    },
+    "ProfileUpdateAuditLog": {
+      "title": "ProfileUpdateAuditLog",
+      "description": "Log jejak audit untuk setiap aktiviti kemaskini data pelanggan",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "ID unik entri log", "maxLength": 100 },
+        "noAkaun": { "type": "string", "description": "Nombor akaun pelanggan", "maxLength": 100 },
+        "nama": { "type": "string", "description": "Nama pelanggan", "maxLength": 200 },
+        "oldPhone": { "type": "string", "description": "Nombor telefon sebelum kemaskini", "maxLength": 50 },
+        "newPhone": { "type": "string", "description": "Nombor telefon selepas kemaskini", "maxLength": 50 },
+        "oldEmail": { "type": "string", "description": "Emel sebelum kemaskini", "maxLength": 150 },
+        "newEmail": { "type": "string", "description": "Emel selepas kemaskini", "maxLength": 150 },
+        "changedFields": { "type": "array", "description": "Senarai nama ruangan yang berubah" },
+        "timestamp": { "type": "string", "description": "Tarikh masa log audit dicipta" },
+        "source": { "type": "string", "description": "Punca kemaskini dibuat", "maxLength": 100 },
+        "isRewardEligible": { "type": "boolean", "description": "Kelayakan hadiah bagi kemaskini ini" },
+        "rewardStatus": { "type": "string", "description": "Status ganjaran hadiah", "maxLength": 50 },
+        "rewardCode": { "type": "string", "description": "Kod hadiah pengesahan", "maxLength": 50 },
+        "rewardClaimed": { "type": "boolean", "description": "Penanda status tebusan hadiah" },
+        "rewardClaimedAt": { "type": "string", "description": "Masa tebusan hadiah dilakukan" }
+      },
+      "required": ["id", "noAkaun", "nama", "timestamp"]
+    },
+    "AppConfig": {
+      "title": "AppConfig",
+      "description": "Konfigurasi metadata aplikasi",
+      "type": "object",
+      "properties": {
+        "customColumns": { "type": "array", "description": "Senarai lajur Excel yang dikesan" },
+        "lastUpdated": { "type": "string", "description": "Tarikh masa kemaskini tetapan" }
+      }
+    }
+  },
+  "firestore": {
+    "/accounts/{accountId}": {
+      "schema": "CustomerAccount",
+      "description": "Pangkalan data akaun pelanggan untuk carian dan kemaskini profil"
+    },
+    "/audit_logs/{logId}": {
+      "schema": "ProfileUpdateAuditLog",
+      "description": "Log jejak audit perubahan profil pelanggan"
+    },
+    "/app_config/{configId}": {
+      "schema": "AppConfig",
+      "description": "Konfigurasi tetapan metadata sistem"
+    }
+  }
+}

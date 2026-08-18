@@ -1,0 +1,968 @@
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+import React, { useState, useEffect } from 'react';
+import { 
+  ActiveTab, 
+  DeviceFrame, 
+  CustomerAccount, 
+  ProfileUpdateAuditLog,
+  AdminRole,
+  GoogleSheetsConfig
+} from './types';
+import { initialCustomerAccounts } from './data/sampleAccounts';
+import { Navbar } from './components/Navbar';
+import { CustomerPortalLookup } from './components/CustomerPortalLookup';
+import { AccountDirectoryView } from './components/AccountDirectoryView';
+import { AuditLogsView } from './components/AuditLogsView';
+import { CustomerSpreadsheetView } from './components/CustomerSpreadsheetView';
+import { ExcelImportManagerView } from './components/ExcelImportManagerView';
+import { GoogleSheetsDatabaseView } from './components/GoogleSheetsDatabaseView';
+import { GlideGuideModal } from './components/GlideGuideModal';
+import { AdminLoginModal } from './components/AdminLoginModal';
+import { ClearDataModal } from './components/ClearDataModal';
+import { exportAccountsToExcel } from './utils/excelHelper';
+import { useToast } from './context/ToastContext';
+import { Lock, ShieldAlert, ArrowLeft, KeyRound, Cloud, CloudCheck, Database, Crown, Shield } from 'lucide-react';
+import { 
+  subscribeToAccounts, 
+  subscribeToAuditLogs, 
+  saveAccountToFirestore, 
+  saveAuditLogToFirestore, 
+  batchSaveAccountsToFirestore, 
+  clearAllAccountsInFirestore,
+  clearAllAuditLogsInFirestore 
+} from './services/firebaseService';
+import { 
+  getStoredGoogleSheetsConfig, 
+  updateSingleCustomerInGoogleSheet, 
+  addGoogleSyncLog,
+  fetchLiveAccountsFromGoogleSheets 
+} from './services/googleSheetsService';
+
+const STORAGE_ACCOUNTS_KEY = 'customer_portal_accounts_v5';
+const STORAGE_AUDIT_LOGS_KEY = 'customer_portal_audit_logs_v5';
+const STORAGE_ADMIN_AUTH_KEY = 'customer_portal_admin_authenticated';
+const STORAGE_ADMIN_ROLE_KEY = 'customer_portal_admin_role_v5';
+const STORAGE_ADMIN_PASSWORD_KEY = 'customer_portal_admin_password';
+const STORAGE_SUPER_ADMIN_PASSWORD_KEY = 'customer_portal_super_admin_password';
+const STORAGE_DB_INITIALIZED_KEY = 'customer_portal_db_initialized_v5';
+
+const TAB_LABELS: Record<ActiveTab, string> = {
+  lookup: 'Carian & Kemaskini Profil',
+  import_excel: 'Import & Kemaskini Excel',
+  directory: 'Direktori Akaun',
+  audit_logs: 'Log Kemaskini & Audit',
+  spreadsheet: 'Pangkalan Data Helaian',
+  google_sheets: 'Pangkalan Data Google Sheets',
+};
+
+export default function App() {
+  const { showSuccess, showError, showWarning } = useToast();
+
+  // Navigation & View Mode State - Default to 'lookup' (Public Portal)
+  const [activeTab, setActiveTab] = useState<ActiveTab>('lookup');
+  const [prefilledLookupAccountNo, setPrefilledLookupAccountNo] = useState<string | null>(null);
+  const [deviceFrame, setDeviceFrame] = useState<DeviceFrame>('responsive');
+  const [showGuideModal, setShowGuideModal] = useState(false);
+  const [showClearDataModal, setShowClearDataModal] = useState(false);
+
+  // Admin & Super Admin Role Authentication State
+  const [adminRole, setAdminRole] = useState<AdminRole | null>(() => {
+    try {
+      const savedRole = localStorage.getItem(STORAGE_ADMIN_ROLE_KEY);
+      if (savedRole === 'super_admin' || savedRole === 'admin') return savedRole;
+      const legacyAuth = localStorage.getItem(STORAGE_ADMIN_AUTH_KEY);
+      if (legacyAuth === 'true') return 'admin';
+      return null;
+    } catch {
+      return null;
+    }
+  });
+
+  const isAdmin = Boolean(adminRole);
+  const isSuperAdmin = adminRole === 'super_admin';
+
+  const [adminPassword, setAdminPassword] = useState<string>(() => {
+    try {
+      return localStorage.getItem(STORAGE_ADMIN_PASSWORD_KEY) || 'admin123';
+    } catch {
+      return 'admin123';
+    }
+  });
+
+  const [superAdminPassword, setSuperAdminPassword] = useState<string>(() => {
+    try {
+      return localStorage.getItem(STORAGE_SUPER_ADMIN_PASSWORD_KEY) || 'superadmin123';
+    } catch {
+      return 'superadmin123';
+    }
+  });
+
+  const [showAdminLoginModal, setShowAdminLoginModal] = useState(false);
+  const [pendingAdminTargetTab, setPendingAdminTargetTab] = useState<ActiveTab | undefined>(undefined);
+  const [isCloudConnected, setIsCloudConnected] = useState<boolean>(true);
+
+  // Google Sheets Live DB Connection State
+  const [gsConfig, setGsConfig] = useState<GoogleSheetsConfig>(() => getStoredGoogleSheetsConfig());
+
+  // Refresh Google Sheets config on tab switches
+  useEffect(() => {
+    const current = getStoredGoogleSheetsConfig();
+    setGsConfig(current);
+  }, [activeTab]);
+
+  // Clean legacy test storage on initialization if needed
+  useEffect(() => {
+    try {
+      localStorage.removeItem('customer_portal_accounts_v1');
+      localStorage.removeItem('customer_portal_accounts_v2');
+      localStorage.removeItem('customer_portal_accounts_v3');
+      localStorage.removeItem('customer_portal_accounts_v4');
+      localStorage.removeItem('customer_portal_audit_logs_v1');
+      localStorage.removeItem('customer_portal_audit_logs_v2');
+      localStorage.removeItem('customer_portal_audit_logs_v3');
+      localStorage.removeItem('customer_portal_audit_logs_v4');
+      sessionStorage.removeItem('portal_recent_searches');
+    } catch {}
+  }, []);
+
+  // Accounts state with LocalStorage - initialized from cache then synced live with Firestore
+  const [accounts, setAccounts] = useState<CustomerAccount[]>(() => {
+    try {
+      const isInitialized = localStorage.getItem(STORAGE_DB_INITIALIZED_KEY) === 'true';
+      const saved = localStorage.getItem(STORAGE_ACCOUNTS_KEY);
+      if (saved !== null) {
+        const parsed: CustomerAccount[] = JSON.parse(saved);
+        // Deduplicate by noAkaun to avoid duplicate key warnings from previous session
+        const dedupMap = new Map<string, CustomerAccount>();
+        parsed.forEach((a) => {
+          const key = a.noAkaun.trim();
+          if (!dedupMap.has(key)) {
+            dedupMap.set(key, a);
+          } else {
+            const prev = dedupMap.get(key)!;
+            dedupMap.set(key, {
+              ...prev,
+              nama: prev.nama && prev.nama !== 'Pelanggan' ? prev.nama : a.nama,
+              kadPengenalan: prev.kadPengenalan || a.kadPengenalan,
+              noTel: prev.noTel || a.noTel,
+              email: prev.email || a.email,
+            });
+          }
+        });
+        return Array.from(dedupMap.values());
+      }
+      if (isInitialized) {
+        return [];
+      }
+      return initialCustomerAccounts;
+    } catch {
+      return initialCustomerAccounts;
+    }
+  });
+
+  // Audit Logs state - starts completely clean/empty
+  const [auditLogs, setAuditLogs] = useState<ProfileUpdateAuditLog[]>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_AUDIT_LOGS_KEY);
+      if (saved) return JSON.parse(saved);
+    } catch {}
+
+    return [];
+  });
+
+  // ⚡ Live Firestore Real-Time Subscriptions
+  useEffect(() => {
+    const unsubscribeAccounts = subscribeToAccounts(
+      (firestoreAccounts) => {
+        setIsCloudConnected(true);
+        setAccounts(firestoreAccounts);
+      },
+      (err) => {
+        console.warn('Firestore offline fallback active:', err);
+        setIsCloudConnected(false);
+      }
+    );
+
+    const unsubscribeLogs = subscribeToAuditLogs(
+      (firestoreLogs) => {
+        setIsCloudConnected(true);
+        setAuditLogs(firestoreLogs);
+      },
+      (err) => {
+        console.warn('Firestore audit logs listener offline:', err);
+      }
+    );
+
+    return () => {
+      unsubscribeAccounts();
+      unsubscribeLogs();
+    };
+  }, []);
+
+  // Sync to LocalStorage as instant local cache (safe bounded for huge datasets)
+  useEffect(() => {
+    try {
+      if (accounts.length <= 2500) {
+        localStorage.setItem(STORAGE_ACCOUNTS_KEY, JSON.stringify(accounts));
+      } else {
+        // For large 100MB+ datasets, cache the top 2,500 most recently updated accounts in localStorage
+        const topSlice = accounts.slice(0, 2500);
+        localStorage.setItem(STORAGE_ACCOUNTS_KEY, JSON.stringify(topSlice));
+      }
+    } catch {
+      // Storage quota exceeded fallback
+      try {
+        const miniSlice = accounts.slice(0, 500);
+        localStorage.setItem(STORAGE_ACCOUNTS_KEY, JSON.stringify(miniSlice));
+      } catch {}
+    }
+  }, [accounts]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_AUDIT_LOGS_KEY, JSON.stringify(auditLogs));
+    } catch {}
+  }, [auditLogs]);
+
+  useEffect(() => {
+    try {
+      if (adminRole) {
+        localStorage.setItem(STORAGE_ADMIN_ROLE_KEY, adminRole);
+        localStorage.setItem(STORAGE_ADMIN_AUTH_KEY, 'true');
+      } else {
+        localStorage.removeItem(STORAGE_ADMIN_ROLE_KEY);
+        localStorage.removeItem(STORAGE_ADMIN_AUTH_KEY);
+      }
+    } catch {}
+  }, [adminRole]);
+
+  const handleUpdateAdminPassword = (newPass: string) => {
+    setAdminPassword(newPass);
+    try {
+      localStorage.setItem(STORAGE_ADMIN_PASSWORD_KEY, newPass);
+    } catch {}
+  };
+
+  const handleUpdateSuperAdminPassword = (newPass: string) => {
+    setSuperAdminPassword(newPass);
+    try {
+      localStorage.setItem(STORAGE_SUPER_ADMIN_PASSWORD_KEY, newPass);
+    } catch {}
+  };
+
+  const handleAdminLoginSuccess = (role: AdminRole) => {
+    setAdminRole(role);
+    setShowAdminLoginModal(false);
+    if (pendingAdminTargetTab) {
+      // If target tab is Super Admin only and user logged in as regular admin, route to directory
+      if ((pendingAdminTargetTab === 'import_excel' || pendingAdminTargetTab === 'google_sheets') && role !== 'super_admin') {
+        setActiveTab('directory');
+      } else {
+        setActiveTab(pendingAdminTargetTab);
+      }
+      setPendingAdminTargetTab(undefined);
+    }
+  };
+
+  const handleLogoutAdmin = () => {
+    setAdminRole(null);
+    try {
+      localStorage.removeItem(STORAGE_ADMIN_AUTH_KEY);
+      localStorage.removeItem(STORAGE_ADMIN_ROLE_KEY);
+    } catch {}
+    setActiveTab('lookup');
+  };
+
+  const handleOpenAdminLogin = (targetTab?: ActiveTab) => {
+    setPendingAdminTargetTab(targetTab);
+    setShowAdminLoginModal(true);
+  };
+
+  // Handle Account Update (Only Phone & Email allowed, strictly 1-time reward per customer)
+  const handleUpdateAccount = (
+    updated: CustomerAccount,
+    changedFields: string[] = [],
+    oldPhone: string = '',
+    oldEmail: string = ''
+  ) => {
+    // Find existing account to check previous reward status
+    const existingAccount = accounts.find((a) => a.noAkaun.toLowerCase() === updated.noAkaun.toLowerCase());
+    
+    // Check if this account already received reward eligibility in previous updates or existing audit logs
+    const hadRewardBefore =
+      existingAccount?.rewardStatus === 'Layak (Belum Dituntut)' ||
+      existingAccount?.rewardStatus === 'Telah Dituntut' ||
+      auditLogs.some(
+        (l) => l.noAkaun.toLowerCase() === updated.noAkaun.toLowerCase() && l.isRewardEligible
+      );
+
+    const isFirstQualifyingUpdate = !hadRewardBefore && changedFields.length > 0;
+    const rewardCode =
+      existingAccount?.rewardCode ||
+      `GIFT-${updated.noAkaun.replace(/[^A-Za-z0-9]/g, '') || Math.floor(100000 + Math.random() * 900000)}`;
+
+    const currentRewardStatus = hadRewardBefore
+      ? existingAccount?.rewardStatus || 'Layak (Belum Dituntut)'
+      : isFirstQualifyingUpdate
+      ? 'Layak (Belum Dituntut)'
+      : 'Belum Layak';
+
+    const now = new Date().toISOString().replace('T', ' ').slice(0, 16);
+
+    const updatedAccountWithFlag: CustomerAccount = {
+      ...updated,
+      telahDikemaskini: true,
+      updatedFields: changedFields.length > 0 ? changedFields : updated.updatedFields,
+      rewardStatus: currentRewardStatus,
+      rewardCode: rewardCode,
+      rewardEligibilityDate: isFirstQualifyingUpdate
+        ? now
+        : existingAccount?.rewardEligibilityDate || (hadRewardBefore ? existingAccount?.lastUpdated : undefined),
+      updateCount: (existingAccount?.updateCount || 0) + (changedFields.length > 0 ? 1 : 0),
+    };
+
+    setAccounts((prev) => prev.map((a) => (a.noAkaun === updated.noAkaun ? updatedAccountWithFlag : a)));
+
+    // ⚡ Real-Time Cloud Save: Firestore
+    saveAccountToFirestore(updatedAccountWithFlag).catch((err) => {
+      console.warn('Could not sync account update to Firestore immediately:', err);
+    });
+
+    // ⚡ Real-Time Google Sheets Auto-Sync (if connected and enabled)
+    try {
+      const gsConfig = getStoredGoogleSheetsConfig();
+      if (gsConfig.isConnected && gsConfig.spreadsheetId && gsConfig.autoSyncOnUpdate) {
+        updateSingleCustomerInGoogleSheet(
+          gsConfig.spreadsheetId,
+          updatedAccountWithFlag,
+          gsConfig.sheetName || 'Sheet1'
+        ).then((synced) => {
+          if (synced) {
+            addGoogleSyncLog(
+              'AUTO_KEMASKINI',
+              'BERJAYA',
+              `Auto-sync akaun ${updated.noAkaun} (${changedFields.join(', ') || 'Profil'}) ke Google Sheet.`
+            );
+          }
+        }).catch((e) => {
+          console.warn('Google Sheets auto-sync error:', e);
+        });
+      }
+    } catch (e) {
+      console.warn('Google Sheets auto-sync check error:', e);
+    }
+
+    // Create Audit Log if there were changes
+    if (changedFields.length > 0) {
+      const newLog: ProfileUpdateAuditLog = {
+        id: `audit-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+        noAkaun: updated.noAkaun,
+        nama: updated.nama,
+        oldPhone: oldPhone || updated.noTel,
+        newPhone: updated.noTel,
+        oldEmail: oldEmail || updated.email,
+        newEmail: updated.email,
+        changedFields,
+        timestamp: now,
+        source: isAdmin ? 'Pentadbir' : 'Portal Pelanggan',
+        isRewardEligible: isFirstQualifyingUpdate,
+        rewardStatus: isFirstQualifyingUpdate
+          ? 'Layak Hadiah (Kali Pertama)'
+          : 'Kemaskini Ulangan (Hadiah Sudah Diberi)',
+        rewardCode: rewardCode,
+        rewardClaimed: existingAccount?.rewardStatus === 'Telah Dituntut',
+        rewardClaimedAt: existingAccount?.rewardClaimedAt,
+      };
+      setAuditLogs((prev) => [newLog, ...prev]);
+
+      // ⚡ Real-Time Cloud Save: Firestore Audit Log
+      saveAuditLogToFirestore(newLog).catch((err) => {
+        console.warn('Could not sync audit log to Firestore:', err);
+      });
+    }
+  };
+
+  // Handle claiming/dispatching the 1-time reward for a customer
+  const handleClaimReward = (noAkaun: string) => {
+    const now = new Date().toISOString().replace('T', ' ').slice(0, 16);
+
+    const targetAccount = accounts.find((a) => a.noAkaun.toLowerCase() === noAkaun.toLowerCase());
+    if (targetAccount) {
+      const updatedAcc: CustomerAccount = {
+        ...targetAccount,
+        rewardStatus: 'Telah Dituntut',
+        rewardClaimedAt: now,
+      };
+      saveAccountToFirestore(updatedAcc).catch(console.warn);
+    }
+
+    setAccounts((prev) =>
+      prev.map((a) => {
+        if (a.noAkaun.toLowerCase() === noAkaun.toLowerCase()) {
+          return {
+            ...a,
+            rewardStatus: 'Telah Dituntut',
+            rewardClaimedAt: now,
+          };
+        }
+        return a;
+      })
+    );
+
+    setAuditLogs((prev) =>
+      prev.map((l) => {
+        if (l.noAkaun.toLowerCase() === noAkaun.toLowerCase()) {
+          const updatedLog: ProfileUpdateAuditLog = {
+            ...l,
+            rewardClaimed: true,
+            rewardClaimedAt: now,
+            rewardStatus: l.isRewardEligible ? 'Telah Dituntut' : l.rewardStatus,
+          };
+          saveAuditLogToFirestore(updatedLog).catch(console.warn);
+          return updatedLog;
+        }
+        return l;
+      })
+    );
+  };
+
+  // Handle Adding New Account
+  const handleAddAccount = (newAcc: CustomerAccount) => {
+    setAccounts((prev) => [newAcc, ...prev]);
+    saveAccountToFirestore(newAcc).catch(console.warn);
+  };
+
+  // Handle Batch Excel Import with merge or replace modes
+  const handleImportAccountsWithMode = (imported: CustomerAccount[], mode: 'merge' | 'replace' = 'merge') => {
+    // ⚡ Real-Time Cloud Batch Save to Firestore
+    batchSaveAccountsToFirestore(imported, mode).catch((err) => {
+      console.warn('Firestore batch import warning:', err);
+    });
+
+    if (mode === 'replace') {
+      const dedupMap = new Map<string, CustomerAccount>();
+      imported.forEach((item) => {
+        const key = item.noAkaun.trim();
+        if (!dedupMap.has(key)) {
+          dedupMap.set(key, item);
+        } else {
+          const prev = dedupMap.get(key)!;
+          dedupMap.set(key, {
+            ...prev,
+            nama: item.nama && item.nama !== 'Pelanggan' ? item.nama : prev.nama,
+            kadPengenalan: item.kadPengenalan || prev.kadPengenalan,
+            noTel: item.noTel || prev.noTel,
+            email: item.email || prev.email,
+          });
+        }
+      });
+      setAccounts(Array.from(dedupMap.values()));
+    } else {
+      setAccounts((prev) => {
+        const existingMap = new Map<string, CustomerAccount>(prev.map((a) => [a.noAkaun, a]));
+        imported.forEach((item) => {
+          const existing = existingMap.get(item.noAkaun);
+          if (existing) {
+            // Merge retaining existing update flag if already updated
+            existingMap.set(item.noAkaun, {
+              ...existing,
+              nama: item.nama || existing.nama,
+              kadPengenalan: item.kadPengenalan || existing.kadPengenalan,
+              kategoriAkaun: item.kategoriAkaun || existing.kategoriAkaun,
+              status: item.status || existing.status,
+              noTel: item.noTel || existing.noTel,
+              email: item.email || existing.email,
+              lastUpdated: new Date().toISOString().replace('T', ' ').slice(0, 16),
+            });
+          } else {
+            existingMap.set(item.noAkaun, item);
+          }
+        });
+        return Array.from(existingMap.values());
+      });
+    }
+  };
+
+  const handleImportAccounts = (imported: CustomerAccount[]) => {
+    handleImportAccountsWithMode(imported, 'merge');
+  };
+
+  // Request Clear All Data (Open Modal) - RESTRICTED TO SUPER ADMIN ONLY
+  const handleRequestClearAllData = () => {
+    if (!isSuperAdmin) {
+      showError('Akses Ditolak', 'Fungsi Kosongkan Data hanya boleh dilaksanakan oleh Super Admin sahaja.');
+      handleOpenAdminLogin('import_excel');
+      return;
+    }
+    setShowClearDataModal(true);
+  };
+
+  // Confirm and Execute Clear All Data
+  const handleConfirmClearAllData = async () => {
+    if (!isSuperAdmin) {
+      showError('Akses Ditolak', 'Fungsi Kosongkan Data hanya boleh dilaksanakan oleh Super Admin sahaja.');
+      handleOpenAdminLogin('import_excel');
+      return;
+    }
+
+    try {
+      // 1. Mark as explicitly initialized/cleared so it never auto-seeds sample demo accounts
+      localStorage.setItem(STORAGE_DB_INITIALIZED_KEY, 'true');
+      localStorage.setItem(STORAGE_ACCOUNTS_KEY, JSON.stringify([]));
+      localStorage.setItem(STORAGE_AUDIT_LOGS_KEY, JSON.stringify([]));
+
+      // 2. Clear in-memory local state
+      setAccounts([]);
+      setAuditLogs([]);
+
+      // 3. Clear Cloud Firestore
+      await clearAllAccountsInFirestore();
+      await clearAllAuditLogsInFirestore();
+
+      showSuccess(
+        'Pangkalan Data Dikosongkan',
+        'Semua rekod akaun dan log audit telah berjaya dikosongkan daripada pangkalan data awan & tempatan.'
+      );
+    } catch (err: any) {
+      console.error('Error during clear data:', err);
+      showError('Ralat Mengosongkan Data', err?.message || 'Gagal memadam sebahagian data pada pangkalan data awan.');
+      throw err;
+    }
+  };
+
+  // 🔄 Sync latest customer records directly from connected Google Sheet into system state & Firestore
+  const handleSyncFromGoogleSheets = async (): Promise<CustomerAccount[]> => {
+    const result = await fetchLiveAccountsFromGoogleSheets();
+    if (result.success && result.accounts.length > 0) {
+      handleImportAccountsWithMode(result.accounts, 'merge');
+      const updatedConfig = getStoredGoogleSheetsConfig();
+      setGsConfig(updatedConfig);
+      return result.accounts;
+    }
+    return [];
+  };
+
+  // 📥 Dynamically save/sync single account found from live Google Sheets search
+  const handleAccountFoundFromGoogleSheets = (account: CustomerAccount) => {
+    setAccounts((prev) => {
+      const exists = prev.some((a) => a.noAkaun.toLowerCase() === account.noAkaun.toLowerCase());
+      if (exists) {
+        return prev.map((a) => (a.noAkaun.toLowerCase() === account.noAkaun.toLowerCase() ? { ...a, ...account } : a));
+      }
+      return [account, ...prev];
+    });
+    saveAccountToFirestore(account).catch(console.warn);
+  };
+
+  // Render current tab content with Security Wall for Admin & Super Admin views
+  const renderTabContent = () => {
+    // Public view is ALWAYS accessible without login
+    if (activeTab === 'lookup') {
+      return (
+        <CustomerPortalLookup
+          accounts={accounts}
+          onUpdateAccount={handleUpdateAccount}
+          initialAccountNo={prefilledLookupAccountNo}
+          onClearInitialAccount={() => setPrefilledLookupAccountNo(null)}
+          isGoogleSheetsConnected={gsConfig.isConnected && Boolean(gsConfig.spreadsheetId)}
+          googleSheetName={gsConfig.spreadsheetName}
+          googleSheetUrl={gsConfig.spreadsheetUrl}
+          onSyncFromGoogleSheets={handleSyncFromGoogleSheets}
+          onAddFetchedAccount={handleAccountFoundFromGoogleSheets}
+        />
+      );
+    }
+
+    // 🔒 SUPER ADMIN ONLY TABS: Import & Kemaskini Excel and Google Sheets DB
+    if (activeTab === 'import_excel' || activeTab === 'google_sheets') {
+      if (!isSuperAdmin) {
+        return (
+          <div className="max-w-xl mx-auto py-12 px-4">
+            <div className="bg-white border border-purple-200 rounded-3xl p-8 shadow-xl text-center space-y-6">
+              <div className="w-16 h-16 rounded-2xl bg-purple-100 border border-purple-300 text-purple-900 flex items-center justify-center mx-auto shadow-inner">
+                <Crown className="w-8 h-8 text-purple-700" />
+              </div>
+
+              <div className="space-y-2">
+                <span className="text-[10px] font-mono font-bold uppercase tracking-widest text-purple-900 bg-purple-100 border border-purple-300 px-3 py-1 rounded-full inline-flex items-center gap-1.5">
+                  <Crown className="w-3 h-3 text-amber-500" />
+                  Eksklusif Super Admin
+                </span>
+                <h2 className="text-xl sm:text-2xl font-bold font-serif-heading text-stone-900">
+                  Akses Super Admin Diperlukan
+                </h2>
+                <p className="text-xs sm:text-sm text-stone-600 max-w-md mx-auto leading-relaxed">
+                  Bahagian <strong>{TAB_LABELS[activeTab]}</strong> hanya dibenarkan kepada <strong>Super Admin</strong> sahaja demi keselamatan dan integriti pangkalan data pelanggan.
+                </p>
+              </div>
+
+              <div className="bg-purple-50/70 border border-purple-200 rounded-2xl p-4 text-xs text-purple-950 text-left space-y-2">
+                <div className="flex items-center justify-between font-bold font-serif-heading text-purple-900">
+                  <div className="flex items-center gap-2">
+                    <ShieldAlert className="w-4 h-4 text-purple-700" />
+                    <span>Status Kebenaran Semasa</span>
+                  </div>
+                  <span className="text-[10px] font-mono font-semibold px-2 py-0.5 rounded bg-white/80 border border-purple-200">
+                    {adminRole === 'admin' ? 'Pentadbir Biasa' : 'Belum Log Masuk'}
+                  </span>
+                </div>
+                <p className="text-[11px] text-purple-800 leading-relaxed">
+                  {adminRole === 'admin' 
+                    ? 'Anda kini log masuk sebagai Pentadbir Biasa. Sila sahkan kata laluan Super Admin (superadmin123) untuk membuka akses import fail dan integrasi Google Sheets.'
+                    : 'Sila log masuk dengan akaun Super Admin untuk menguruskan import pangkalan data Excel dan integrasi Google Sheets.'}
+                </p>
+              </div>
+
+              <div className="flex flex-col sm:flex-row items-center justify-center gap-3 pt-2">
+                <button
+                  onClick={() => setActiveTab(isAdmin ? 'directory' : 'lookup')}
+                  className="w-full sm:w-auto px-5 py-2.5 bg-stone-100 hover:bg-stone-200 text-stone-700 rounded-xl text-xs font-semibold flex items-center justify-center gap-2 transition-colors cursor-pointer"
+                >
+                  <ArrowLeft className="w-4 h-4" />
+                  <span>{isAdmin ? 'Ke Direktori Akaun' : 'Kembali ke Portal Awam'}</span>
+                </button>
+
+                <button
+                  onClick={() => handleOpenAdminLogin(activeTab)}
+                  className="w-full sm:w-auto px-6 py-2.5 bg-purple-900 hover:bg-purple-950 text-white rounded-xl text-xs font-bold shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-2 border border-purple-800 cursor-pointer"
+                >
+                  <Crown className="w-4 h-4 text-amber-300" />
+                  <span>{isAdmin ? 'Naik Taraf ke Super Admin' : 'Log Masuk Super Admin'}</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      }
+    }
+
+    // 🛡️ REGULAR ADMIN TABS: directory, audit_logs, spreadsheet
+    if (!isAdmin) {
+      return (
+        <div className="max-w-xl mx-auto py-12 px-4">
+          <div className="bg-white border border-stone-300 rounded-3xl p-8 shadow-xl text-center space-y-6">
+            <div className="w-16 h-16 rounded-2xl bg-amber-50 border border-amber-200 text-amber-600 flex items-center justify-center mx-auto shadow-inner">
+              <Lock className="w-8 h-8" />
+            </div>
+
+            <div className="space-y-2">
+              <span className="text-[10px] font-mono font-bold uppercase tracking-widest text-amber-700 bg-amber-100 border border-amber-300/80 px-2.5 py-1 rounded-full">
+                Akses Terhad Pentadbir Sistem
+              </span>
+              <h2 className="text-xl sm:text-2xl font-bold font-serif-heading text-stone-900">
+                Bahagian Dilindungi Kata Laluan
+              </h2>
+              <p className="text-xs sm:text-sm text-stone-600 max-w-md mx-auto leading-relaxed">
+                Pengguna awam/pelanggan hanya boleh mengakses modul <strong>Carian & Kemaskini Profil</strong>. Modul <strong>{TAB_LABELS[activeTab]}</strong> memerlukan pengesahan kata laluan pentadbir sistem.
+              </p>
+            </div>
+
+            <div className="bg-stone-50 border border-stone-200 rounded-2xl p-4 text-xs text-stone-600 text-left space-y-2">
+              <div className="flex items-center gap-2 text-stone-800 font-bold font-serif-heading">
+                <ShieldAlert className="w-4 h-4 text-amber-600" />
+                <span>Maklumat Akses Pentadbir</span>
+              </div>
+              <p className="text-[11px] text-stone-500">
+                Sila masukkan kata laluan admin untuk mengurus direktori pelanggan, pangkalan data helaian dan log audit.
+              </p>
+            </div>
+
+            <div className="flex flex-col sm:flex-row items-center justify-center gap-3 pt-2">
+              <button
+                onClick={() => setActiveTab('lookup')}
+                className="w-full sm:w-auto px-5 py-2.5 bg-stone-100 hover:bg-stone-200 text-stone-700 rounded-xl text-xs font-semibold flex items-center justify-center gap-2 transition-colors cursor-pointer"
+              >
+                <ArrowLeft className="w-4 h-4" />
+                <span>Kembali ke Portal Awam</span>
+              </button>
+
+              <button
+                onClick={() => handleOpenAdminLogin(activeTab)}
+                className="w-full sm:w-auto px-6 py-2.5 bg-[#1A1A1A] hover:bg-black text-white rounded-xl text-xs font-bold shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-2 border border-stone-800 cursor-pointer"
+              >
+                <KeyRound className="w-4 h-4 text-amber-400" />
+                <span>Log Masuk Admin Sekarang</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // Authenticated Views (Admin & Super Admin)
+    switch (activeTab) {
+      case 'import_excel':
+        return (
+          <ExcelImportManagerView
+            accounts={accounts}
+            onImportAccounts={handleImportAccountsWithMode}
+            onUpdateAccount={handleUpdateAccount}
+            onNavigateToLookup={(noAkaun) => {
+              setPrefilledLookupAccountNo(noAkaun);
+              setActiveTab('lookup');
+            }}
+            onClearAllAccounts={handleRequestClearAllData}
+            isSuperAdmin={isSuperAdmin}
+            onRequireSuperAdmin={() => handleOpenAdminLogin('import_excel')}
+          />
+        );
+      case 'directory':
+        return (
+          <AccountDirectoryView
+            accounts={accounts}
+            onSelectAccountForLookup={(acc) => {
+              setPrefilledLookupAccountNo(acc.noAkaun);
+              setActiveTab('lookup');
+            }}
+            onAddAccount={handleAddAccount}
+            onImportAccounts={handleImportAccounts}
+            onClearAllAccounts={handleRequestClearAllData}
+            onClaimReward={handleClaimReward}
+            isSuperAdmin={isSuperAdmin}
+            onRequireSuperAdmin={() => handleOpenAdminLogin('import_excel')}
+          />
+        );
+      case 'audit_logs':
+        return (
+          <AuditLogsView
+            logs={auditLogs}
+            onSelectAccount={(noAkaun) => {
+              setPrefilledLookupAccountNo(noAkaun);
+              setActiveTab('lookup');
+            }}
+            onClaimReward={handleClaimReward}
+          />
+        );
+      case 'spreadsheet':
+        return (
+          <CustomerSpreadsheetView
+            accounts={accounts}
+            onUpdateAccount={handleUpdateAccount}
+            onImportAccounts={handleImportAccounts}
+            onClearAllAccounts={handleRequestClearAllData}
+            isSuperAdmin={isSuperAdmin}
+            onRequireSuperAdmin={() => handleOpenAdminLogin('import_excel')}
+          />
+        );
+      case 'google_sheets':
+        return (
+          <GoogleSheetsDatabaseView
+            accounts={accounts}
+            onImportAccounts={handleImportAccountsWithMode}
+            onUpdateAccount={handleUpdateAccount}
+            onNavigateToLookup={(noAkaun) => {
+              setPrefilledLookupAccountNo(noAkaun);
+              setActiveTab('lookup');
+            }}
+          />
+        );
+      default:
+        return null;
+    }
+  };
+
+  const handleTabChange = (tab: ActiveTab) => {
+    if (tab === 'lookup') {
+      setPrefilledLookupAccountNo(null);
+      setActiveTab(tab);
+    } else if (tab === 'import_excel' || tab === 'google_sheets') {
+      if (isSuperAdmin) {
+        setActiveTab(tab);
+      } else {
+        handleOpenAdminLogin(tab);
+      }
+    } else {
+      if (isAdmin) {
+        setActiveTab(tab);
+      } else {
+        handleOpenAdminLogin(tab);
+      }
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-[#FDFCFB] text-[#1A1A1A] flex flex-col font-sans selection:bg-[#1A1A1A] selection:text-[#FDFCFB]">
+      {/* Top Navbar Header */}
+      <Navbar
+        activeTab={activeTab}
+        setActiveTab={handleTabChange}
+        deviceFrame={deviceFrame}
+        setDeviceFrame={setDeviceFrame}
+        onOpenGuide={() => setShowGuideModal(true)}
+        onExportExcel={() => {
+          if (!isAdmin) {
+            handleOpenAdminLogin();
+            return;
+          }
+          exportAccountsToExcel(accounts, 'xlsx');
+        }}
+        totalAccounts={accounts.length}
+        isAdmin={isAdmin}
+        isSuperAdmin={isSuperAdmin}
+        adminRole={adminRole}
+        onOpenAdminLogin={handleOpenAdminLogin}
+        onLogoutAdmin={handleLogoutAdmin}
+      />
+
+      {/* Main Content Area */}
+      <main className="flex-1 flex justify-center py-5 px-3 sm:px-5 lg:px-8">
+        {deviceFrame === 'mobile' ? (
+          /* Mobile Phone Container Simulation */
+          <div className="w-full max-w-[420px] bg-[#1A1A1A] p-3 rounded-[38px] shadow-2xl border-4 border-[#2A2826] my-auto">
+            {/* Speaker notch */}
+            <div className="flex justify-center mb-2">
+              <div className="w-28 h-4 bg-[#111111] rounded-full flex items-center justify-center">
+                <div className="w-2 h-2 rounded-full bg-stone-800 mr-2" />
+                <div className="w-10 h-1 bg-stone-800 rounded-full" />
+              </div>
+            </div>
+
+            {/* Screen */}
+            <div className="bg-[#FAF8F5] rounded-[26px] overflow-hidden min-h-[720px] max-h-[820px] flex flex-col shadow-inner border border-stone-200/60">
+              <div className="p-3 bg-white/90 backdrop-blur-xs border-b border-stone-200 flex justify-between items-center text-[10px] font-semibold text-stone-500">
+                <span>9:41 AM</span>
+                <span className="font-mono text-stone-900 tracking-wider uppercase text-[9px] font-bold">Portal Profil Pelanggan</span>
+                <span>100% 🔋</span>
+              </div>
+              <div className="p-3 overflow-y-auto flex-1 space-y-3">
+                {renderTabContent()}
+              </div>
+            </div>
+          </div>
+        ) : deviceFrame === 'tablet' ? (
+          /* Tablet Viewport Container */
+          <div className="w-full max-w-[860px] bg-[#1A1A1A] p-4 rounded-[28px] shadow-2xl border-4 border-[#2A2826]">
+            <div className="bg-[#FAF8F5] rounded-[18px] overflow-hidden min-h-[700px] p-5 border border-stone-200/60">
+              {renderTabContent()}
+            </div>
+          </div>
+        ) : (
+          /* Responsive Desktop Layout */
+          <div className="w-full max-w-7xl mx-auto">
+            {renderTabContent()}
+          </div>
+        )}
+      </main>
+
+      {/* Editorial Footer with Copyright and Jnol.Ai */}
+      <footer className="bg-[#FAF9F6] border-t border-stone-200/90 py-5 text-xs text-stone-600">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 flex flex-col md:flex-row items-center justify-between gap-4">
+          {/* Copyright & Jnol.Ai Brand in matching system colors */}
+          <div className="flex flex-wrap items-center justify-center md:justify-start gap-2.5 text-stone-700 text-xs">
+            <span className="w-2 h-2 rounded-full bg-stone-900" />
+            <span className="font-serif-heading font-bold text-stone-950 text-sm">Portal Profil Pelanggan</span>
+            <span className="text-stone-300">•</span>
+            <div className="flex items-center gap-1.5 font-medium text-stone-700">
+              <span>&copy; {new Date().getFullYear()} Hakcipta Terpelihara</span>
+              <span className="text-stone-400">•</span>
+              <span className="font-serif-heading font-bold text-stone-900">
+                Jnol.Ai
+              </span>
+            </div>
+          </div>
+
+          {/* Auxiliary Links, Cloud Sync & Role Status */}
+          <div className="flex flex-wrap items-center justify-center gap-3 text-stone-500 text-xs font-medium">
+            <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-50/90 border border-emerald-300 text-[11px] font-mono text-emerald-900 shadow-2xs">
+              <CloudCheck className="w-3.5 h-3.5 text-emerald-700" />
+              <span>Awan: Firestore Aktif</span>
+            </div>
+
+            <span className="text-stone-300">•</span>
+
+            <button 
+              onClick={() => setShowGuideModal(true)} 
+              className="hover:text-stone-950 underline underline-offset-2 transition-colors cursor-pointer"
+            >
+              Panduan Keselamatan Rekod
+            </button>
+
+            <span className="text-stone-300">•</span>
+
+            {isSuperAdmin ? (
+              <div className="flex items-center gap-2">
+                <span className="text-purple-900 font-bold flex items-center gap-1 bg-purple-100 px-2 py-0.5 rounded-full border border-purple-300 text-[11px]">
+                  <Crown className="w-3 h-3 text-amber-500" /> Sesi Super Admin Aktif
+                </span>
+                {accounts.length > 0 && (
+                  <>
+                    <span className="text-stone-300">•</span>
+                    <button 
+                      onClick={handleRequestClearAllData} 
+                      className="hover:text-red-700 transition-colors cursor-pointer text-stone-500 hover:underline"
+                    >
+                      Kosongkan Data ({accounts.length})
+                    </button>
+                  </>
+                )}
+              </div>
+            ) : isAdmin ? (
+              <div className="flex items-center gap-2">
+                <span className="text-emerald-700 font-semibold flex items-center gap-1">
+                  ● Sesi Admin Aktif
+                </span>
+                {accounts.length > 0 && (
+                  <>
+                    <span className="text-stone-300">•</span>
+                    <button 
+                      onClick={handleRequestClearAllData} 
+                      className="hover:text-red-700 transition-colors cursor-pointer text-stone-500 hover:underline"
+                    >
+                      Kosongkan Data ({accounts.length})
+                    </button>
+                  </>
+                )}
+              </div>
+            ) : (
+              <button 
+                onClick={() => handleOpenAdminLogin()} 
+                className="hover:text-stone-900 transition-colors cursor-pointer text-stone-500 flex items-center gap-1"
+              >
+                <Lock className="w-3 h-3 text-stone-400" />
+                <span>Log Masuk Admin Sistem</span>
+              </button>
+            )}
+          </div>
+        </div>
+      </footer>
+
+      {/* Guide Modal */}
+      {showGuideModal && (
+        <GlideGuideModal onClose={() => setShowGuideModal(false)} />
+      )}
+
+      {/* Admin Login Modal */}
+      {showAdminLoginModal && (
+        <AdminLoginModal
+          isOpen={showAdminLoginModal}
+          onClose={() => {
+            setShowAdminLoginModal(false);
+            setPendingAdminTargetTab(undefined);
+          }}
+          onSuccess={handleAdminLoginSuccess}
+          currentAdminPassword={adminPassword}
+          currentSuperAdminPassword={superAdminPassword}
+          targetTabName={pendingAdminTargetTab ? TAB_LABELS[pendingAdminTargetTab] : undefined}
+          targetTabKey={pendingAdminTargetTab}
+          isAlreadyAdmin={isAdmin}
+          isAlreadySuperAdmin={isSuperAdmin}
+          adminRole={adminRole}
+          onLogout={handleLogoutAdmin}
+        />
+      )}
+
+      {/* Super Admin Clear Data Modal */}
+      <ClearDataModal
+        isOpen={showClearDataModal}
+        onClose={() => setShowClearDataModal(false)}
+        onConfirm={handleConfirmClearAllData}
+        accountCount={accounts.length}
+        auditLogCount={auditLogs.length}
+      />
+    </div>
+  );
+}

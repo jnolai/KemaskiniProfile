@@ -1,0 +1,6 @@
+{
+  "name": "Portal Kemaskini Profil Pelanggan",
+  "description": "Portal carian akaun dan kemaskini profil pelanggan secara layan diri dengan integrasi pangkalan data langsung Google Sheets, Excel dan Firestore.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
