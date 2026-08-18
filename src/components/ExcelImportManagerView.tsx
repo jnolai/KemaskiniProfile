@@ -22,7 +22,8 @@ import {
   ChevronsRight,
   Activity,
   Trash2,
-  Crown
+  Crown,
+  Info
 } from 'lucide-react';
 import { CustomerAccount } from '../types';
 import { generateProfileSummaryPDF } from '../utils/pdfReceiptHelper';
@@ -213,12 +214,42 @@ export const ExcelImportManagerView: React.FC<ExcelImportManagerViewProps> = ({
     }
   };
 
+  // ⚡ Deduplication Statistics against current database
+  const deduplicationStats = useMemo(() => {
+    if (!parseResult) return null;
+    const existingDbSet = new Set(accounts.map((a) => a.noAkaun.trim().toUpperCase()));
+    let matchingInDb = 0;
+    let newUnique = 0;
+
+    parseResult.accounts.forEach((acc) => {
+      const key = acc.noAkaun.trim().toUpperCase();
+      if (existingDbSet.has(key)) {
+        matchingInDb++;
+      } else {
+        newUnique++;
+      }
+    });
+
+    const duplicateCountInFile = (parseResult as any).duplicateCountInFile || 0;
+    const rawRowCount = (parseResult as any).rawRowCount || parseResult.accounts.length;
+
+    return {
+      totalUnique: parseResult.accounts.length,
+      matchingInDb,
+      newUnique,
+      duplicateCountInFile,
+      rawRowCount,
+    };
+  }, [parseResult, accounts]);
+
   // Commit Import from Langkah 1 to system and configure Langkah 2 fields
   const handleApplyImport = () => {
     if (!parseResult || parseResult.accounts.length === 0) return;
 
     const count = parseResult.accounts.length;
     const fileName = selectedFile?.name || 'Excel';
+    const matchCount = deduplicationStats?.matchingInDb || 0;
+    const newCount = deduplicationStats?.newUnique || count;
 
     // Apply the imported accounts to parent state
     onImportAccounts(parseResult.accounts, importMode);
@@ -238,7 +269,10 @@ export const ExcelImportManagerView: React.FC<ExcelImportManagerViewProps> = ({
       });
     } catch {}
 
-    const feedbackMsg = `🎉 Berjaya memuat naik ${count} rekod akaun. Ruangan pada Langkah 2 kini diselaraskan mengikut lajur fail "${fileName}".`;
+    const feedbackMsg = importMode === 'replace'
+      ? `🎉 Berjaya memuat naik ${count.toLocaleString()} rekod akaun (Gantian Keseluruhan). Ruangan pada Langkah 2 diselaraskan.`
+      : `🎉 Berjaya memproses ${count.toLocaleString()} akaun: ${newCount.toLocaleString()} akaun baharu ditambah & ${matchCount.toLocaleString()} akaun sedia ada (No. Akaun sama) dikemaskini.`;
+
     setImportFeedback({
       type: 'success',
       message: feedbackMsg,
@@ -246,7 +280,9 @@ export const ExcelImportManagerView: React.FC<ExcelImportManagerViewProps> = ({
 
     showSuccess(
       'Import Data Excel Berjaya!',
-      `Sebanyak ${count} rekod akaun dari fail "${fileName}" telah dimuat naik ke dalam sistem (${importMode === 'replace' ? 'Gantian Keseluruhan' : 'Penyelarasan/Merge'}).`
+      importMode === 'replace'
+        ? `Sebanyak ${count.toLocaleString()} rekod akaun dari fail "${fileName}" telah menggantikan keseluruhan data.`
+        : `Sebanyak ${count.toLocaleString()} rekod akaun diselaraskan (${newCount.toLocaleString()} baharu, ${matchCount.toLocaleString()} dikemas kini).`
     );
 
     // Reset staging state
@@ -667,7 +703,7 @@ export const ExcelImportManagerView: React.FC<ExcelImportManagerViewProps> = ({
         )}
 
         {/* Staging Confirmation Card (when a file has been read in Langkah 1) */}
-        {parseResult && (
+        {parseResult && deduplicationStats && (
           <div className="p-4 bg-stone-50 border border-stone-300 rounded-xl space-y-3.5">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2.5 border-b border-stone-200">
               <div className="flex items-center gap-2">
@@ -705,6 +741,42 @@ export const ExcelImportManagerView: React.FC<ExcelImportManagerViewProps> = ({
                 >
                   Ganti Semua (Replace)
                 </button>
+              </div>
+            </div>
+
+            {/* ⚡ Nyahduplikasi Breakdown Badges */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+              <div className="p-2.5 bg-white border border-stone-200 rounded-lg space-y-0.5">
+                <div className="text-[10px] text-stone-500 font-mono">Baris Fail Dibaca</div>
+                <div className="text-sm font-bold font-mono text-stone-900">
+                  {deduplicationStats.rawRowCount.toLocaleString()}
+                </div>
+              </div>
+              <div className="p-2.5 bg-emerald-50/80 border border-emerald-200 rounded-lg space-y-0.5">
+                <div className="text-[10px] text-emerald-800 font-mono font-semibold">Akaun Unik Baharu</div>
+                <div className="text-sm font-bold font-mono text-emerald-900">
+                  +{deduplicationStats.newUnique.toLocaleString()}
+                </div>
+              </div>
+              <div className="p-2.5 bg-amber-50/80 border border-amber-200 rounded-lg space-y-0.5">
+                <div className="text-[10px] text-amber-800 font-mono font-semibold">No. Akaun Sama (Kemaskini)</div>
+                <div className="text-sm font-bold font-mono text-amber-900">
+                  {deduplicationStats.matchingInDb.toLocaleString()}
+                </div>
+              </div>
+              <div className="p-2.5 bg-stone-100 border border-stone-300 rounded-lg space-y-0.5">
+                <div className="text-[10px] text-stone-600 font-mono">Nyahduplikasi Dalam Fail</div>
+                <div className="text-sm font-bold font-mono text-stone-800">
+                  {deduplicationStats.duplicateCountInFile.toLocaleString()}
+                </div>
+              </div>
+            </div>
+
+            {/* Explanatory Rule Callout */}
+            <div className="p-2.5 bg-emerald-50/60 border border-emerald-200 rounded-lg flex items-start gap-2 text-[11px] text-emerald-950 font-serif">
+              <Info className="w-3.5 h-3.5 text-emerald-700 shrink-0 mt-0.5" />
+              <div>
+                <strong>Peraturan Nyahduplikasi:</strong> Nyahduplikasi automatik hanya berfungsi sekiranya terdapat <strong>No. Akaun yang sama</strong> di dalam pangkalan data atau di dalam fail Excel. Rekod dengan No. Akaun berbeza akan ditambah sebagai akaun baharu.
               </div>
             </div>
 
@@ -1400,6 +1472,22 @@ export const ExcelImportManagerView: React.FC<ExcelImportManagerViewProps> = ({
                         </span>
                       </div>
                     ))}
+                </div>
+
+                {/* 🏛️ Pengemaskinian Pemilikan (e-JPPH DBKL) */}
+                <div className="pt-2 border-t border-stone-200 flex items-center justify-between gap-2">
+                  <span className="text-[10px] text-stone-500 font-serif">
+                    Penukaran hak milik rasmi?
+                  </span>
+                  <a
+                    href="https://ejpph.dbkl.gov.my/"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-[10px] text-blue-700 hover:text-blue-900 font-bold flex items-center gap-1 underline underline-offset-2"
+                  >
+                    <span>Kemaskini Pemilikan di e-JPPH DBKL</span>
+                    <ExternalLink className="w-2.5 h-2.5" />
+                  </a>
                 </div>
               </div>
 

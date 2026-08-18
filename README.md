@@ -63,19 +63,36 @@ Fail statik yang dioptimumkan sepenuhnya akan dihasilkan di dalam direktori `dis
 
 ---
 
-## 🌐 Panduan Deployment
+## 🌐 Panduan Deployment Percuma (Free Hosting)
 
-### Cara 1: Deploy ke Netlify (Disyorkan)
+### ⚡ Cara 1: Deploy ke Cloudflare Pages (Disyorkan — 100% Percuma & Pantas)
+Cloudflare Pages menyediakan **unlimited bandwidth, unlimited requests, global CDN & SSL percuma**.
+
+#### Langkah-langkah:
+1. **Push Kod ke GitHub**:
+   - Muat naik kod projek ini ke repositori GitHub anda.
+2. **Buka Cloudflare Dashboard**:
+   - Log masuk ke [dash.cloudflare.com](https://dash.cloudflare.com/) -> Pergi ke **Workers & Pages** -> Klik **Create application** -> Pilih tab **Pages** -> Klik **Connect to Git**.
+3. **Pilih Repositori GitHub**:
+   - Pilih repositori projek portal ini.
+4. **Konfigurasi Build Settings**:
+   - **Framework preset**: `Vite` (atau `None`)
+   - **Build command**: `npm run build`
+   - **Build output directory**: `dist`
+   - **Node.js Version**: (Di bawah *Environment variables*, tambah `NODE_VERSION` = `20`)
+5. **Klik Save and Deploy**:
+   - Dalam masa ~1 minit, portal anda akan live pada domain percuma seperti `portal-pelanggan.pages.dev`!
+   - Fail `public/_redirects` sudah disertakan secara automatik untuk memastikan SPA routing berfungsi lancar tanpa ralat 404 apabila halaman di-refresh.
+
+---
+
+### Cara 2: Deploy ke Netlify / Vercel
 Fail `netlify.toml` dan `public/_redirects` telah disertakan:
-1. Hubungkan repositori GitHub ini ke akaun [Netlify](https://app.netlify.com/).
+1. Hubungkan repositori GitHub ke akaun [Netlify](https://app.netlify.com/) atau [Vercel](https://vercel.com/).
 2. Konfigurasi binaan automatik:
    - **Build Command:** `npm run build`
    - **Publish Directory:** `dist`
 3. Klik **Deploy Site**.
-
-### Cara 2: Deploy ke Vercel / Cloudflare Pages / GitHub Pages
-- **Vercel:** Import projek dari GitHub, pilih kerangka **Vite**, dan tekan Deploy.
-- **Cloudflare Pages:** Tetapkan *Build Output Directory* ke `dist`.
 
 ---
 

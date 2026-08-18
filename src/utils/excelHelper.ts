@@ -317,6 +317,8 @@ export async function parseAccountsExcel(
   accounts: CustomerAccount[];
   detectedColumns: string[];
   totalRows: number;
+  duplicateCountInFile?: number;
+  rawRowCount?: number;
 }> {
   const fileSizeMb = Number((file.size / (1024 * 1024)).toFixed(2));
 
@@ -610,19 +612,24 @@ export async function parseAccountsExcel(
           });
         }
 
-        // Deduplicate accounts by noAkaun in O(N)
+        // Deduplicate accounts by noAkaun in O(N) (Nyahduplikasi berasaskan No. Akaun yang sama)
         const deduplicatedMap = new Map<string, CustomerAccount>();
+        let duplicatesInFile = 0;
+
         for (let k = 0; k < rawAccounts.length; k++) {
           const item = rawAccounts[k];
-          const key = item.noAkaun.trim();
+          const key = item.noAkaun.trim().toUpperCase();
           if (deduplicatedMap.has(key)) {
+            duplicatesInFile++;
             const existing = deduplicatedMap.get(key)!;
             deduplicatedMap.set(key, {
               ...existing,
-              nama: existing.nama && existing.nama !== 'Pelanggan' ? existing.nama : item.nama,
-              kadPengenalan: existing.kadPengenalan || item.kadPengenalan,
-              noTel: existing.noTel || item.noTel,
-              email: existing.email || item.email,
+              nama: item.nama && !item.nama.startsWith('Pelanggan') ? item.nama : existing.nama,
+              kadPengenalan: item.kadPengenalan || existing.kadPengenalan,
+              noTel: item.noTel || existing.noTel,
+              email: item.email || existing.email,
+              kategoriAkaun: item.kategoriAkaun || existing.kategoriAkaun,
+              status: item.status || existing.status,
               rawRowData: { ...existing.rawRowData, ...item.rawRowData },
             });
           } else {
@@ -634,7 +641,7 @@ export async function parseAccountsExcel(
 
         if (onProgress) {
           onProgress({
-            phase: `Selesai! Berjaya mengekstrak semua ${accounts.length.toLocaleString()} akaun dari fail.`,
+            phase: `Selesai! Berjaya mengekstrak ${accounts.length.toLocaleString()} akaun unik (${duplicatesInFile > 0 ? `${duplicatesInFile.toLocaleString()} No. Akaun berulang dinyahduplikasi` : 'Semua No. Akaun unik'}).`,
             percent: 100,
             processedRows: accounts.length,
             totalRows: accounts.length,
@@ -646,6 +653,8 @@ export async function parseAccountsExcel(
           accounts,
           detectedColumns,
           totalRows: accounts.length,
+          duplicateCountInFile: duplicatesInFile,
+          rawRowCount: rawAccounts.length,
         });
       } catch (err) {
         reject(err);

@@ -815,6 +815,34 @@ export const CustomerPortalLookup: React.FC<CustomerPortalLookupProps> = ({
                     </div>
                   </div>
                 </div>
+
+                {/* 🏛️ Pengemaskinian Pemilikan (e-JPPH DBKL Hyperlink) */}
+                <div className="p-3.5 bg-blue-50/80 border border-blue-200 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+                  <div className="flex items-start gap-2.5">
+                    <div className="w-7 h-7 rounded-lg bg-blue-700 text-white flex items-center justify-center shrink-0 shadow-2xs mt-0.5">
+                      <ExternalLink className="w-3.5 h-3.5" />
+                    </div>
+                    <div>
+                      <span className="font-serif-heading font-bold text-blue-950 block text-xs sm:text-[13px]">
+                        Ingin Membuat Pengemaskinian Pemilikan?
+                      </span>
+                      <p className="text-[11px] text-blue-800 font-serif leading-relaxed">
+                        Untuk penukaran atau pengemaskinian nama hak milik pemilikan rasmi, sila buat permohonan melalui portal rasmi <strong>e-JPPH DBKL</strong>.
+                      </p>
+                    </div>
+                  </div>
+                  <a
+                    id="btn-kemaskini-pemilikan"
+                    href="https://ejpph.dbkl.gov.my/"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="px-3.5 py-2 bg-blue-700 hover:bg-blue-800 text-white font-semibold rounded-lg text-xs flex items-center justify-center gap-1.5 shadow-2xs transition-all shrink-0 cursor-pointer text-center"
+                    title="Buka portal rasmi e-JPPH DBKL untuk pengemaskinian pemilikan"
+                  >
+                    <span>Kemaskini Pemilikan</span>
+                    <ExternalLink className="w-3.5 h-3.5" />
+                  </a>
+                </div>
               </div>
 
               {/* ✏️ 2. SECTION: EDITABLE FIELDS (PHONE & EMAIL ONLY) */}

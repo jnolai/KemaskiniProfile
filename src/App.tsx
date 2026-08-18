@@ -436,7 +436,7 @@ export default function App() {
     saveAccountToFirestore(newAcc).catch(console.warn);
   };
 
-  // Handle Batch Excel Import with merge or replace modes
+  // Handle Batch Excel Import with merge or replace modes (Nyahduplikasi berdasarkan No. Akaun yang sama)
   const handleImportAccountsWithMode = (imported: CustomerAccount[], mode: 'merge' | 'replace' = 'merge') => {
     // ⚡ Real-Time Cloud Batch Save to Firestore
     batchSaveAccountsToFirestore(imported, mode).catch((err) => {
@@ -446,40 +446,52 @@ export default function App() {
     if (mode === 'replace') {
       const dedupMap = new Map<string, CustomerAccount>();
       imported.forEach((item) => {
-        const key = item.noAkaun.trim();
+        const key = item.noAkaun.trim().toUpperCase();
         if (!dedupMap.has(key)) {
           dedupMap.set(key, item);
         } else {
           const prev = dedupMap.get(key)!;
           dedupMap.set(key, {
             ...prev,
-            nama: item.nama && item.nama !== 'Pelanggan' ? item.nama : prev.nama,
+            nama: item.nama && !item.nama.startsWith('Pelanggan') ? item.nama : prev.nama,
             kadPengenalan: item.kadPengenalan || prev.kadPengenalan,
             noTel: item.noTel || prev.noTel,
             email: item.email || prev.email,
+            kategoriAkaun: item.kategoriAkaun || prev.kategoriAkaun,
+            status: item.status || prev.status,
+            rawRowData: { ...(prev.rawRowData || {}), ...(item.rawRowData || {}) },
           });
         }
       });
       setAccounts(Array.from(dedupMap.values()));
     } else {
       setAccounts((prev) => {
-        const existingMap = new Map<string, CustomerAccount>(prev.map((a) => [a.noAkaun, a]));
+        const existingMap = new Map<string, CustomerAccount>();
+        // Populate existing database accounts with uppercase trimmed keys
+        prev.forEach((a) => {
+          existingMap.set(a.noAkaun.trim().toUpperCase(), a);
+        });
+
+        // Merge incoming records: if identical noAkaun is found, update it. If new, insert it.
         imported.forEach((item) => {
-          const existing = existingMap.get(item.noAkaun);
+          const key = item.noAkaun.trim().toUpperCase();
+          const existing = existingMap.get(key);
           if (existing) {
-            // Merge retaining existing update flag if already updated
-            existingMap.set(item.noAkaun, {
+            // Nyahduplikasi: Kemas kini akaun sedia ada yang mempunyai No. Akaun sama
+            existingMap.set(key, {
               ...existing,
-              nama: item.nama || existing.nama,
+              nama: item.nama && !item.nama.startsWith('Pelanggan') ? item.nama : existing.nama,
               kadPengenalan: item.kadPengenalan || existing.kadPengenalan,
               kategoriAkaun: item.kategoriAkaun || existing.kategoriAkaun,
               status: item.status || existing.status,
               noTel: item.noTel || existing.noTel,
               email: item.email || existing.email,
+              rawRowData: { ...(existing.rawRowData || {}), ...(item.rawRowData || {}) },
               lastUpdated: new Date().toISOString().replace('T', ' ').slice(0, 16),
             });
           } else {
-            existingMap.set(item.noAkaun, item);
+            // Rekod akaun baharu (No. Akaun unik belum wujud dalam pangkalan data)
+            existingMap.set(key, item);
           }
         });
         return Array.from(existingMap.values());
