@@ -847,7 +847,7 @@ export default function App() {
             <div className="bg-[#FAF8F5] rounded-[26px] overflow-hidden min-h-[720px] max-h-[820px] flex flex-col shadow-inner border border-stone-200/60">
               <div className="p-3 bg-white/90 backdrop-blur-xs border-b border-stone-200 flex justify-between items-center text-[10px] font-semibold text-stone-500">
                 <span>9:41 AM</span>
-                <span className="font-mono text-stone-900 tracking-wider uppercase text-[9px] font-bold">Portal Profil Pelanggan</span>
+                <span className="font-mono text-stone-900 tracking-wider uppercase text-[9px] font-bold">eKemaskini</span>
                 <span>100% 🔋</span>
               </div>
               <div className="p-3 overflow-y-auto flex-1 space-y-3">
@@ -876,7 +876,7 @@ export default function App() {
           {/* Copyright & Jnol.Ai Brand in matching system colors */}
           <div className="flex flex-wrap items-center justify-center md:justify-start gap-2.5 text-stone-700 text-xs">
             <span className="w-2 h-2 rounded-full bg-stone-900" />
-            <span className="font-serif-heading font-bold text-stone-950 text-sm">Portal Profil Pelanggan</span>
+            <span className="font-serif-heading font-bold text-stone-950 text-sm">eKemaskini</span>
             <span className="text-stone-300">•</span>
             <div className="flex items-center gap-1.5 font-medium text-stone-700">
               <span>&copy; {new Date().getFullYear()} Hakcipta Terpelihara</span>

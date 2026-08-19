@@ -24,7 +24,11 @@ import {
   ExternalLink, 
   Check, 
   Zap, 
-  History 
+  History,
+  Eye,
+  EyeOff,
+  ShieldAlert,
+  Shield
 } from 'lucide-react';
 import { CustomerAccount } from '../types';
 import { generateProfileSummaryPDF } from '../utils/pdfReceiptHelper';
@@ -34,6 +38,19 @@ import {
   buildAccountSearchIndex, 
   fastLookupByAccountNo 
 } from '../utils/searchEngine';
+import { 
+  maskKadPengenalan, 
+  maskPhoneNumber, 
+  maskEmailAddress, 
+  sanitizeAccountNo, 
+  sanitizePhone, 
+  sanitizeEmail, 
+  isValidMalaysianPhone, 
+  isValidEmailFormat, 
+  securityRateLimiter, 
+  logSecurityIncident 
+} from '../utils/security';
+import { CyberSecurityShieldModal } from './CyberSecurityShieldModal';
 import confetti from 'canvas-confetti';
 
 interface CustomerPortalLookupProps {
@@ -69,6 +86,20 @@ export const CustomerPortalLookup: React.FC<CustomerPortalLookupProps> = ({
   const [isSearchingLiveGoogleSheet, setIsSearchingLiveGoogleSheet] = useState(false);
   const [isSyncingSheets, setIsSyncingSheets] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // Cybersecurity & PDPA States
+  const [searchLockoutSeconds, setSearchLockoutSeconds] = useState(0);
+  const [revealFullIC, setRevealFullIC] = useState(false);
+  const [isSecurityModalOpen, setIsSecurityModalOpen] = useState(false);
+
+  // Lockout countdown timer
+  useEffect(() => {
+    if (searchLockoutSeconds <= 0) return;
+    const timer = setInterval(() => {
+      setSearchLockoutSeconds((prev) => Math.max(0, prev - 1));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [searchLockoutSeconds]);
 
   // Recent searches cache
   const [recentSearches, setRecentSearches] = useState<string[]>(() => {
@@ -174,7 +205,25 @@ export const CustomerPortalLookup: React.FC<CustomerPortalLookupProps> = ({
   const handleSearchSubmit = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
 
-    const q = searchInput.trim();
+    // Check search rate limiter & lockout
+    if (searchLockoutSeconds > 0) {
+      showWarning('Carian Disekat Sementara', `Sila tunggu ${searchLockoutSeconds} saat lagi demi perlindungan keselamatan anti-scraping.`);
+      return;
+    }
+
+    const rateCheck = securityRateLimiter.checkRateLimit('portal_lookup', 10, 30000, 45000);
+    if (!rateCheck.allowed) {
+      setSearchLockoutSeconds(rateCheck.lockoutSeconds);
+      showError(
+        'Had Kadar Carian Dicapai', 
+        `Penyekatan keselamatan diaktifkan selama ${rateCheck.lockoutSeconds} saat untuk menghalang pengikisan data automatik.`
+      );
+      return;
+    }
+
+    const raw = searchInput.trim();
+    const q = sanitizeAccountNo(raw);
+
     if (!q) {
       showWarning('Sila Masukkan No. Akaun', 'Sila masukkan nombor akaun (contoh: 1611xxxxxxxxx) untuk membuat carian.');
       return;
@@ -262,6 +311,7 @@ export const CustomerPortalLookup: React.FC<CustomerPortalLookupProps> = ({
     setSelectedAccount(null);
     setValidationError(null);
     setSavedSuccess(false);
+    setRevealFullIC(false);
     if (onClearInitialAccount) {
       onClearInitialAccount();
     }
@@ -273,24 +323,32 @@ export const CustomerPortalLookup: React.FC<CustomerPortalLookupProps> = ({
     editEmail.trim() !== (activeAccount.email || '').trim()
   );
 
-  // Save updated profile
+  // Save updated profile with cyber sanitization and rate-limiting
   const handleFormSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!activeAccount) return;
 
-    // Validate phone
-    const cleanedPhone = editPhone.trim();
-    if (!cleanedPhone) {
-      const msg = 'Sila masukkan nombor telefon yang sah.';
+    // Rate limiter on profile update actions
+    const rateCheck = securityRateLimiter.checkRateLimit('portal_update', 6, 60000, 60000);
+    if (!rateCheck.allowed) {
+      const msg = `Sila bertenang. Penyerahan dikawal keselamatan siber (${rateCheck.lockoutSeconds}s cooldown).`;
+      setValidationError(msg);
+      showError('Had Penyerahan Dicapai', msg);
+      return;
+    }
+
+    // Sanitize & validate phone
+    const cleanedPhone = sanitizePhone(editPhone);
+    if (!cleanedPhone || !isValidMalaysianPhone(cleanedPhone)) {
+      const msg = 'Sila masukkan nombor telefon Malaysia yang sah (contoh: 012-3456789 atau 011xxxxxxxx).';
       setValidationError(msg);
       showError('Ralat Format Nombor Telefon', msg);
       return;
     }
 
-    // Validate email format
-    const cleanedEmail = editEmail.trim();
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!cleanedEmail || !emailRegex.test(cleanedEmail)) {
+    // Sanitize & validate email
+    const cleanedEmail = sanitizeEmail(editEmail);
+    if (!cleanedEmail || !isValidEmailFormat(cleanedEmail)) {
       const msg = 'Sila masukkan alamat email dengan format yang sah (contoh: nama@domain.com).';
       setValidationError(msg);
       showError('Ralat Format Alamat Email', msg);
@@ -356,14 +414,14 @@ export const CustomerPortalLookup: React.FC<CustomerPortalLookupProps> = ({
           <div className="space-y-1.5">
             <div className="flex items-center gap-2">
               <span className="bg-stone-900 text-white text-[10px] uppercase font-mono font-bold px-2.5 py-0.5 rounded tracking-wider">
-                Layan Diri Pelanggan
+                eKemaskini
               </span>
               <span className="text-xs text-stone-500 font-serif italic">
-                Portal Rasmi Semakan & Kemaskini Profil
+                Portal Rasmi Semakan & Kemaskini Profil Pelanggan
               </span>
             </div>
             <h1 className="text-xl sm:text-2xl font-serif-heading font-bold text-stone-950 tracking-tight">
-              Carian & Kemaskini Profil Pelanggan
+              eKemaskini: Carian & Kemaskini Profil
             </h1>
             <p className="text-xs sm:text-sm text-stone-600 max-w-2xl leading-relaxed font-serif">
               Masukkan <strong className="text-stone-900 font-bold">Nombor Akaun</strong> anda untuk mencari dan mengesahkan profil. Demi keselamatan integriti data, 
@@ -371,15 +429,23 @@ export const CustomerPortalLookup: React.FC<CustomerPortalLookupProps> = ({
             </p>
           </div>
 
-          <div className="flex items-center gap-3 bg-white border border-stone-300 p-3 rounded-xl shadow-2xs shrink-0 self-start md:self-center">
-            <div className="w-9 h-9 rounded-lg bg-stone-100 flex items-center justify-center text-stone-800 border border-stone-200">
-              <ShieldCheck className="w-5 h-5 text-stone-700" />
+          <button
+            type="button"
+            onClick={() => setIsSecurityModalOpen(true)}
+            className="flex items-center gap-3 bg-white hover:bg-stone-50 border border-stone-300 hover:border-stone-400 p-3 rounded-xl shadow-2xs shrink-0 self-start md:self-center cursor-pointer transition-all group"
+            title="Klik untuk membuka Pusat Keselamatan Siber & Pematuhan PDPA"
+          >
+            <div className="w-9 h-9 rounded-lg bg-emerald-50 text-emerald-800 flex items-center justify-center border border-emerald-200 group-hover:bg-emerald-100 transition-colors">
+              <ShieldCheck className="w-5 h-5 text-emerald-700" />
             </div>
-            <div className="text-xs">
-              <span className="font-mono font-bold text-stone-900 block text-[11px]">Privasi Terjamin</span>
-              <span className="text-stone-500 text-[10px]">Carian No. Akaun Sahaja</span>
+            <div className="text-left">
+              <span className="font-mono font-bold text-stone-900 block text-[11px] flex items-center gap-1">
+                <span>Perlindungan Siber & PDPA</span>
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+              </span>
+              <span className="text-emerald-700 text-[10px] font-mono">Status: Terpelihara (Klik)</span>
             </div>
-          </div>
+          </button>
         </div>
       </div>
 
@@ -467,12 +533,19 @@ export const CustomerPortalLookup: React.FC<CustomerPortalLookupProps> = ({
                 id="customer-portal-search-input"
                 type="text"
                 autoComplete="off"
+                disabled={searchLockoutSeconds > 0}
                 value={searchInput}
                 onChange={(e) => setSearchInput(e.target.value)}
-                placeholder={isSheetActive ? "Contoh: 1611xxxxxxxxx (Carian segera dalam sistem / Google Sheets)" : "Contoh: 1611xxxxxxxxx"}
-                className="w-full pl-10 pr-9 py-3 bg-white border border-stone-300 rounded-xl text-xs sm:text-sm font-medium text-stone-900 focus:outline-none focus:border-stone-900 focus:ring-1 focus:ring-stone-900 transition-all placeholder:text-stone-400 shadow-2xs"
+                placeholder={
+                  searchLockoutSeconds > 0 
+                    ? `Disekat sementara demi keselamatan anti-scraping (${searchLockoutSeconds}s)` 
+                    : isSheetActive 
+                    ? "Contoh: 1611xxxxxxxxx (Carian segera dalam sistem / Google Sheets)" 
+                    : "Contoh: 1611xxxxxxxxx"
+                }
+                className="w-full pl-10 pr-9 py-3 bg-white disabled:bg-stone-100 disabled:text-stone-400 border border-stone-300 rounded-xl text-xs sm:text-sm font-medium text-stone-900 focus:outline-none focus:border-stone-900 focus:ring-1 focus:ring-stone-900 transition-all placeholder:text-stone-400 shadow-2xs"
               />
-              {searchInput && (
+              {searchInput && searchLockoutSeconds === 0 && (
                 <button
                   type="button"
                   onClick={() => {
@@ -490,10 +563,15 @@ export const CustomerPortalLookup: React.FC<CustomerPortalLookupProps> = ({
             <button
               id="customer-portal-search-btn"
               type="submit"
-              disabled={!searchInput.trim() || isSearchingLiveGoogleSheet}
+              disabled={!searchInput.trim() || isSearchingLiveGoogleSheet || searchLockoutSeconds > 0}
               className="px-6 py-3 bg-[#1A1A1A] hover:bg-black disabled:bg-stone-300 text-white font-bold text-xs sm:text-sm rounded-xl transition-all shadow-2xs flex items-center justify-center gap-2 shrink-0 cursor-pointer disabled:cursor-not-allowed"
             >
-              {isSearchingLiveGoogleSheet ? (
+              {searchLockoutSeconds > 0 ? (
+                <>
+                  <Clock className="w-4 h-4 text-amber-300 animate-spin" />
+                  <span>Disekat ({searchLockoutSeconds}s)</span>
+                </>
+              ) : isSearchingLiveGoogleSheet ? (
                 <>
                   <RefreshCw className="w-4 h-4 animate-spin text-amber-300" />
                   <span>Mencari Google Sheets...</span>
@@ -802,15 +880,32 @@ export const CustomerPortalLookup: React.FC<CustomerPortalLookupProps> = ({
                     </div>
                   </div>
 
-                  {/* Kad Pengenalan */}
+                  {/* Kad Pengenalan with PDPA Masking */}
                   <div>
-                    <span className="text-stone-500 font-mono text-[10px] block mb-1 font-semibold">NO. KAD PENGENALAN (IC)</span>
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-stone-500 font-mono text-[10px] font-semibold">NO. KAD PENGENALAN (IC)</span>
+                      <button
+                        type="button"
+                        onClick={() => setRevealFullIC(!revealFullIC)}
+                        className="text-[10px] text-stone-500 hover:text-stone-900 font-mono flex items-center gap-1 cursor-pointer transition-colors"
+                        title={revealFullIC ? 'Sembunyikan format penuh (PDPA Masking)' : 'Papar Nombor Kad Pengenalan Penuh'}
+                      >
+                        {revealFullIC ? <EyeOff className="w-3 h-3 text-stone-600" /> : <Eye className="w-3 h-3 text-stone-600" />}
+                        <span>{revealFullIC ? 'Sembunyi' : 'Papar Penuh'}</span>
+                      </button>
+                    </div>
                     <div className="p-3 bg-white border border-stone-300 rounded-xl font-mono font-medium text-stone-900 shadow-2xs flex items-center justify-between">
                       <div className="flex items-center gap-2">
                         <CreditCard className="w-3.5 h-3.5 text-stone-400" />
-                        <span>{activeAccount.kadPengenalan || 'Tiada Rekod'}</span>
+                        <span>
+                          {revealFullIC 
+                            ? (activeAccount.kadPengenalan || 'Tiada Rekod') 
+                            : maskKadPengenalan(activeAccount.kadPengenalan || 'Tiada Rekod')}
+                        </span>
                       </div>
-                      <Lock className="w-3.5 h-3.5 text-stone-400" />
+                      <span className="text-[9px] font-mono font-bold text-emerald-800 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
+                        PDPA
+                      </span>
                     </div>
                   </div>
 
@@ -1073,6 +1168,11 @@ export const CustomerPortalLookup: React.FC<CustomerPortalLookupProps> = ({
           </div>
         </div>
       )}
+      {/* 🛡️ Cyber Security & PDPA Center Modal */}
+      <CyberSecurityShieldModal 
+        isOpen={isSecurityModalOpen} 
+        onClose={() => setIsSecurityModalOpen(false)} 
+      />
     </div>
   );
 };

@@ -50,12 +50,12 @@ export function generateProfileSummaryPDF(
   doc.setTextColor(255, 255, 255);
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(14);
-  doc.text('SLIP RESIT RASMI KEMASKINI PROFIL PELANGGAN', margin, 14);
+  doc.text('eKemaskini: SLIP RESIT RASMI PROFIL PELANGGAN', margin, 14);
 
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(9);
   doc.setTextColor(200, 200, 200);
-  doc.text('SISTEM PENGURUSAN DATA & PROFIL AKAUN PELANGGAN', margin, 21);
+  doc.text('PORTAL eKemaskini - PENGURUSAN DATA & PROFIL PELANGGAN', margin, 21);
   doc.text('Pengesahan Penyelarasan Data Maklumat Perhubungan', margin, 26);
 
   // Status Badge in Header

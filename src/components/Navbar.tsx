@@ -83,10 +83,10 @@ export const Navbar: React.FC<NavbarProps> = ({
             <div>
               <div className="flex items-center gap-2">
                 <span className="font-serif-heading font-bold text-[#1A1A1A] text-xl tracking-tight">
-                  Portal Profil Pelanggan
+                  eKemaskini
                 </span>
                 <span className="text-[10px] uppercase font-mono tracking-widest bg-stone-100 text-stone-800 border border-stone-300/80 px-2 py-0.5 rounded font-semibold">
-                  Layan Diri
+                  Portal Profil
                 </span>
               </div>
               <p className="text-xs text-stone-500 font-sans hidden sm:block">

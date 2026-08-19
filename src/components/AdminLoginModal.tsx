@@ -17,11 +17,14 @@ import {
   Crown,
   Database,
   Sparkles,
-  AlertTriangle
+  AlertTriangle,
+  ShieldAlert,
+  Clock
 } from 'lucide-react';
 import { motion } from 'motion/react';
 import { useToast } from '../context/ToastContext';
 import { ActiveTab, AdminRole } from '../types';
+import { securityRateLimiter, logSecurityIncident, sanitizeInput } from '../utils/security';
 
 interface AdminLoginModalProps {
   isOpen: boolean;
@@ -52,16 +55,26 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
   adminRole = null,
   onLogout,
 }) => {
-  const { showSuccess, showError, showInfo } = useToast();
+  const { showSuccess, showError, showInfo, showWarning } = useToast();
   
   // Login form state
   const [passwordInput, setPasswordInput] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loginError, setLoginError] = useState('');
   const [rememberMe, setRememberMe] = useState(true);
+  const [lockoutSeconds, setLockoutSeconds] = useState(0);
 
   const isSuperAdminRequiredTab = targetTabKey === 'import_excel' || targetTabKey === 'google_sheets';
   const isElevationMode = isAlreadyAdmin && !isAlreadySuperAdmin && isSuperAdminRequiredTab;
+
+  // Lockout countdown timer
+  useEffect(() => {
+    if (lockoutSeconds <= 0) return;
+    const timer = setInterval(() => {
+      setLockoutSeconds((prev) => Math.max(0, prev - 1));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [lockoutSeconds]);
 
   // Reset states on open/close
   useEffect(() => {
@@ -75,7 +88,23 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
 
   const handleLoginSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    const trimmed = passwordInput.trim();
+
+    if (lockoutSeconds > 0) {
+      showWarning('Akses Disekat Sementara', `Sila tunggu ${lockoutSeconds} saat lagi sebelum mencuba kata laluan semula demi perlindungan siber.`);
+      return;
+    }
+
+    // Rate Limiter: Max 5 failed attempts per 60 seconds, 60s lockout
+    const rateCheck = securityRateLimiter.checkRateLimit('admin_auth_attempt', 6, 60000, 60000);
+    if (!rateCheck.allowed) {
+      setLockoutSeconds(rateCheck.lockoutSeconds);
+      const msg = `⚠️ Percubaan log masuk berulang kali dikesan. Sistem mengaktifkan sekatan keselamatan siber selama ${rateCheck.lockoutSeconds} saat.`;
+      setLoginError(msg);
+      showError('Sekatan Siber Diaktifkan', msg);
+      return;
+    }
+
+    const trimmed = sanitizeInput(passwordInput);
     if (!trimmed) {
       setLoginError('Sila masukkan kata laluan.');
       showError('Kata Laluan Diperlukan', 'Sila masukkan kata laluan untuk pengesahan akses.');
@@ -84,6 +113,7 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
 
     // Check if matching Super Admin password
     if (trimmed === currentSuperAdminPassword) {
+      securityRateLimiter.resetKey('admin_auth_attempt');
       setLoginError('');
       setPasswordInput('');
       showSuccess('Log Masuk Super Admin Berjaya', 'Akses penuh Super Admin (Import Excel & Google Sheets DB) dibenarkan.');
@@ -100,6 +130,7 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
         return;
       }
 
+      securityRateLimiter.resetKey('admin_auth_attempt');
       setLoginError('');
       setPasswordInput('');
       showSuccess('Log Masuk Pentadbir Berjaya', 'Sesi pentadbir telah disahkan. Akses direktori dan log audit dibenarkan.');
@@ -107,7 +138,14 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
       return;
     }
 
-    const msg = 'Kata laluan tidak sah. Sila semak semula.';
+    logSecurityIncident({
+      type: 'brute_force_attempt',
+      severity: 'medium',
+      description: `Percubaan kata laluan pentadbir tidak sah (${rateCheck.remaining} baki percubaan sebelum sekatan).`,
+      source: 'admin_login_modal',
+    });
+
+    const msg = `Kata laluan tidak sah. Baki percubaan selamat: ${rateCheck.remaining}. Sila semak semula.`;
     setLoginError(msg);
     showError('Log Masuk Gagal', msg);
   };
@@ -433,20 +471,32 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
                 {/* Submit Action */}
                 <button
                   type="submit"
-                  className={`w-full py-3 px-5 text-[#FDFCFB] rounded-xl text-xs sm:text-sm font-bold shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-2 cursor-pointer group mt-3 ${
-                    isSuperAdminRequiredTab
-                      ? 'bg-purple-900 hover:bg-purple-950 border border-purple-800'
-                      : 'bg-stone-900 hover:bg-black border border-stone-800'
+                  disabled={lockoutSeconds > 0}
+                  className={`w-full py-3 px-5 text-[#FDFCFB] rounded-xl text-xs sm:text-sm font-bold shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-2 group mt-3 ${
+                    lockoutSeconds > 0
+                      ? 'bg-stone-400 text-stone-200 cursor-not-allowed border border-stone-300'
+                      : isSuperAdminRequiredTab
+                      ? 'bg-purple-900 hover:bg-purple-950 border border-purple-800 cursor-pointer'
+                      : 'bg-stone-900 hover:bg-black border border-stone-800 cursor-pointer'
                   }`}
                 >
-                  <span>
-                    {isSuperAdminRequiredTab
-                      ? 'Log Masuk Super Admin'
-                      : isElevationMode
-                      ? 'Tingkatkan ke Super Admin'
-                      : 'Log Masuk Pentadbir'}
-                  </span>
-                  <ArrowRight className="w-4 h-4 transition-transform group-hover:translate-x-1" />
+                  {lockoutSeconds > 0 ? (
+                    <>
+                      <Clock className="w-4 h-4 text-amber-300 animate-spin" />
+                      <span>Disekat Sementara ({lockoutSeconds}s)</span>
+                    </>
+                  ) : (
+                    <>
+                      <span>
+                        {isSuperAdminRequiredTab
+                          ? 'Log Masuk Super Admin'
+                          : isElevationMode
+                          ? 'Tingkatkan ke Super Admin'
+                          : 'Log Masuk Pentadbir'}
+                      </span>
+                      <ArrowRight className="w-4 h-4 transition-transform group-hover:translate-x-1" />
+                    </>
+                  )}
                 </button>
               </form>
             )}
