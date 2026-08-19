@@ -25,7 +25,7 @@ import { AdminLoginModal } from './components/AdminLoginModal';
 import { ClearDataModal } from './components/ClearDataModal';
 import { exportAccountsToExcel } from './utils/excelHelper';
 import { useToast } from './context/ToastContext';
-import { Lock, ShieldAlert, ArrowLeft, KeyRound, Cloud, CloudCheck, Database, Crown, Shield } from 'lucide-react';
+import { Lock, ShieldAlert, ArrowLeft, KeyRound, Cloud, CloudCheck, CloudOff, Database, Crown, Shield, HardDrive } from 'lucide-react';
 import { 
   subscribeToAccounts, 
   subscribeToAuditLogs, 
@@ -33,8 +33,16 @@ import {
   saveAuditLogToFirestore, 
   batchSaveAccountsToFirestore, 
   clearAllAccountsInFirestore,
-  clearAllAuditLogsInFirestore 
+  clearAllAuditLogsInFirestore,
+  isFirestoreQuotaExceeded
 } from './services/firebaseService';
+import { 
+  saveAccountsToIDB, 
+  loadAccountsFromIDB, 
+  saveAuditLogsToIDB, 
+  loadAuditLogsFromIDB, 
+  clearAllIDB 
+} from './utils/idbStorage';
 import { 
   getStoredGoogleSheetsConfig, 
   updateSingleCustomerInGoogleSheet, 
@@ -42,13 +50,13 @@ import {
   fetchLiveAccountsFromGoogleSheets 
 } from './services/googleSheetsService';
 
-const STORAGE_ACCOUNTS_KEY = 'customer_portal_accounts_v5';
-const STORAGE_AUDIT_LOGS_KEY = 'customer_portal_audit_logs_v5';
+const STORAGE_ACCOUNTS_KEY = 'customer_portal_accounts_v6';
+const STORAGE_AUDIT_LOGS_KEY = 'customer_portal_audit_logs_v6';
 const STORAGE_ADMIN_AUTH_KEY = 'customer_portal_admin_authenticated';
-const STORAGE_ADMIN_ROLE_KEY = 'customer_portal_admin_role_v5';
+const STORAGE_ADMIN_ROLE_KEY = 'customer_portal_admin_role_v6';
 const STORAGE_ADMIN_PASSWORD_KEY = 'customer_portal_admin_password';
 const STORAGE_SUPER_ADMIN_PASSWORD_KEY = 'customer_portal_super_admin_password';
-const STORAGE_DB_INITIALIZED_KEY = 'customer_portal_db_initialized_v5';
+const STORAGE_DB_INITIALIZED_KEY = 'customer_portal_db_initialized_v6';
 
 const TAB_LABELS: Record<ActiveTab, string> = {
   lookup: 'Carian & Kemaskini Profil',
@@ -114,18 +122,32 @@ export default function App() {
     setGsConfig(current);
   }, [activeTab]);
 
-  // Clean legacy test storage on initialization if needed
+  // Clean legacy test storage on initialization and ensure clean slate
   useEffect(() => {
     try {
-      localStorage.removeItem('customer_portal_accounts_v1');
-      localStorage.removeItem('customer_portal_accounts_v2');
-      localStorage.removeItem('customer_portal_accounts_v3');
-      localStorage.removeItem('customer_portal_accounts_v4');
-      localStorage.removeItem('customer_portal_audit_logs_v1');
-      localStorage.removeItem('customer_portal_audit_logs_v2');
-      localStorage.removeItem('customer_portal_audit_logs_v3');
-      localStorage.removeItem('customer_portal_audit_logs_v4');
-      sessionStorage.removeItem('portal_recent_searches');
+      const isCleanV6 = localStorage.getItem('customer_portal_cleaned_testing_data_v6');
+      if (!isCleanV6) {
+        localStorage.removeItem('customer_portal_accounts_v1');
+        localStorage.removeItem('customer_portal_accounts_v2');
+        localStorage.removeItem('customer_portal_accounts_v3');
+        localStorage.removeItem('customer_portal_accounts_v4');
+        localStorage.removeItem('customer_portal_accounts_v5');
+        localStorage.removeItem('customer_portal_audit_logs_v1');
+        localStorage.removeItem('customer_portal_audit_logs_v2');
+        localStorage.removeItem('customer_portal_audit_logs_v3');
+        localStorage.removeItem('customer_portal_audit_logs_v4');
+        localStorage.removeItem('customer_portal_audit_logs_v5');
+        localStorage.setItem(STORAGE_ACCOUNTS_KEY, JSON.stringify([]));
+        localStorage.setItem(STORAGE_AUDIT_LOGS_KEY, JSON.stringify([]));
+        localStorage.setItem(STORAGE_DB_INITIALIZED_KEY, 'true');
+        sessionStorage.removeItem('portal_recent_searches');
+        clearAllIDB().catch(() => {});
+        clearAllAccountsInFirestore().catch(() => {});
+        clearAllAuditLogsInFirestore().catch(() => {});
+        setAccounts([]);
+        setAuditLogs([]);
+        localStorage.setItem('customer_portal_cleaned_testing_data_v6', 'true');
+      }
     } catch {}
   }, []);
 
@@ -161,15 +183,36 @@ export default function App() {
     return [];
   });
 
-  // ⚡ Live Firestore Real-Time Subscriptions
+  // ⚡ Live Firestore Real-Time Subscriptions & Local IndexedDB Initialization
   useEffect(() => {
+    // Attempt to load from high-capacity IndexedDB on startup (overcomes the 5MB / 2,500 limit)
+    loadAccountsFromIDB().then((cachedAccounts) => {
+      if (cachedAccounts && cachedAccounts.length > 0) {
+        setAccounts((prev) => {
+          // If IndexedDB has more records or different dataset than local slice, load all of them
+          if (cachedAccounts.length >= prev.length || prev === initialCustomerAccounts) {
+            return cachedAccounts;
+          }
+          return prev;
+        });
+      }
+    }).catch(() => {});
+
+    loadAuditLogsFromIDB().then((cachedLogs) => {
+      if (cachedLogs && cachedLogs.length > 0) {
+        setAuditLogs(cachedLogs);
+      }
+    }).catch(() => {});
+
     const unsubscribeAccounts = subscribeToAccounts(
       (firestoreAccounts) => {
         setIsCloudConnected(true);
-        setAccounts(firestoreAccounts);
+        if (firestoreAccounts && firestoreAccounts.length > 0) {
+          setAccounts(firestoreAccounts);
+          saveAccountsToIDB(firestoreAccounts).catch(() => {});
+        }
       },
       (err) => {
-        console.warn('Firestore offline fallback active:', err);
         setIsCloudConnected(false);
       }
     );
@@ -177,10 +220,13 @@ export default function App() {
     const unsubscribeLogs = subscribeToAuditLogs(
       (firestoreLogs) => {
         setIsCloudConnected(true);
-        setAuditLogs(firestoreLogs);
+        if (firestoreLogs && firestoreLogs.length > 0) {
+          setAuditLogs(firestoreLogs);
+          saveAuditLogsToIDB(firestoreLogs).catch(() => {});
+        }
       },
       (err) => {
-        console.warn('Firestore audit logs listener offline:', err);
+        // Handled silently
       }
     );
 
@@ -190,13 +236,14 @@ export default function App() {
     };
   }, []);
 
-  // Sync to LocalStorage as instant local cache (safe bounded for huge datasets)
+  // Sync to IndexedDB & LocalStorage as instant local cache (safe bounded for huge datasets)
   useEffect(() => {
+    saveAccountsToIDB(accounts).catch(() => {});
     try {
       if (accounts.length <= 2500) {
         localStorage.setItem(STORAGE_ACCOUNTS_KEY, JSON.stringify(accounts));
       } else {
-        // For large 100MB+ datasets, cache the top 2,500 most recently updated accounts in localStorage
+        // For large datasets, cache the top 2,500 most recently updated accounts in localStorage
         const topSlice = accounts.slice(0, 2500);
         localStorage.setItem(STORAGE_ACCOUNTS_KEY, JSON.stringify(topSlice));
       }
@@ -210,6 +257,7 @@ export default function App() {
   }, [accounts]);
 
   useEffect(() => {
+    saveAuditLogsToIDB(auditLogs).catch(() => {});
     try {
       localStorage.setItem(STORAGE_AUDIT_LOGS_KEY, JSON.stringify(auditLogs));
     } catch {}
@@ -487,6 +535,7 @@ export default function App() {
       localStorage.setItem(STORAGE_DB_INITIALIZED_KEY, 'true');
       localStorage.setItem(STORAGE_ACCOUNTS_KEY, JSON.stringify([]));
       localStorage.setItem(STORAGE_AUDIT_LOGS_KEY, JSON.stringify([]));
+      await clearAllIDB();
 
       // 2. Clear in-memory local state
       setAccounts([]);
@@ -840,10 +889,17 @@ export default function App() {
 
           {/* Auxiliary Links, Cloud Sync & Role Status */}
           <div className="flex flex-wrap items-center justify-center gap-3 text-stone-500 text-xs font-medium">
-            <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-50/90 border border-emerald-300 text-[11px] font-mono text-emerald-900 shadow-2xs">
-              <CloudCheck className="w-3.5 h-3.5 text-emerald-700" />
-              <span>Awan: Firestore Aktif</span>
-            </div>
+            {isCloudConnected && !isFirestoreQuotaExceeded() ? (
+              <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-50/90 border border-emerald-300 text-[11px] font-mono text-emerald-900 shadow-2xs" title="Pangkalan data Firestore Cloud aktif & diselaras secara langsung">
+                <CloudCheck className="w-3.5 h-3.5 text-emerald-700" />
+                <span>Awan: Firestore Aktif</span>
+              </div>
+            ) : (
+              <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-50/90 border border-amber-300 text-[11px] font-mono text-amber-900 shadow-2xs" title="Sistem beroperasi dalam Mod Storan Tempatan (IndexedDB & Cache Pantas) secara lancar">
+                <HardDrive className="w-3.5 h-3.5 text-amber-700" />
+                <span>Mod Tempatan Pantas</span>
+              </div>
+            )}
 
             <span className="text-stone-300">•</span>
 
