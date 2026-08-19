@@ -1,4 +1,5 @@
 export interface CustomerAccount {
+  id?: string; // Unique row ID (preserves duplicate noAkaun safely)
   noAkaun: string;
   nama: string;
   kadPengenalan: string;

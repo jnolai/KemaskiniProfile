@@ -163,20 +163,22 @@ export function isAccountNoColumn(colName: string): boolean {
   return (
     norm.includes('akaun') ||
     norm.includes('account') ||
-    norm === 'acc' ||
-    norm === 'noacc' ||
-    norm === 'noakaun' ||
+    norm.includes('noakaun') ||
     norm.includes('nomborakaun') ||
     norm.includes('accno') ||
     norm.includes('accountno') ||
     norm.includes('kodbayar') ||
     norm.includes('idpelanggan') ||
     norm.includes('customerid') ||
-    norm === 'no' ||
-    norm === 'id' ||
-    norm.includes('bil') ||
-    norm.includes('kontrak')
+    norm.includes('kontrak') ||
+    norm === 'acc' ||
+    norm === 'noacc'
   );
+}
+
+export function isLooseIdColumn(colName: string): boolean {
+  const norm = normalizeHeaderKey(colName);
+  return norm === 'no' || norm === 'id' || norm.includes('bil') || norm.includes('siri') || norm.includes('rujukan');
 }
 
 export function isOwnerNameColumn(colName: string): boolean {
@@ -273,6 +275,8 @@ interface ColumnKeyMap {
  */
 function buildColumnKeyMap(columns: string[]): ColumnKeyMap {
   const map: ColumnKeyMap = {};
+  
+  // Pass 1: Strict column keyword matching
   for (const col of columns) {
     if (!map.noAkaunKey && isAccountNoColumn(col)) {
       map.noAkaunKey = col;
@@ -292,6 +296,17 @@ function buildColumnKeyMap(columns: string[]): ColumnKeyMap {
       map.tarikhDaftarKey = col;
     }
   }
+
+  // Pass 2: Fallback for ID/No if no dedicated account column was found
+  if (!map.noAkaunKey) {
+    for (const col of columns) {
+      if (isLooseIdColumn(col)) {
+        map.noAkaunKey = col;
+        break;
+      }
+    }
+  }
+
   return map;
 }
 
@@ -376,143 +391,117 @@ export async function parseAccountsExcel(
           throw new Error('Fail tidak mengandungi sebarang lembaran kerja (worksheet).');
         }
 
-        // Get first sheet or sheet with actual data
-        let worksheet: XLSX.WorkSheet | null = null;
-        for (const sheetName of workbook.SheetNames) {
-          const ws = workbook.Sheets[sheetName];
-          if (ws && (ws['!ref'] || Object.keys(ws).length > 0)) {
-            worksheet = ws;
-            break;
-          }
-        }
-
-        if (!worksheet) {
-          worksheet = workbook.Sheets[workbook.SheetNames[0]];
-        }
-
-        if (!worksheet) {
-          throw new Error('Lembaran kerja Excel kosong atau tidak dapat dibaca.');
-        }
-
-        // Extract clean 2D array of all cells [row][col]
-        const rawGrid: any[][] = XLSX.utils.sheet_to_json(worksheet, {
-          header: 1,
-          defval: '',
-          blankrows: false,
-          raw: true,
-        });
-
-        if (!rawGrid || rawGrid.length === 0) {
-          return resolve({ accounts: [], detectedColumns: [], totalRows: 0 });
-        }
-
-        if (onProgress) {
-          onProgress({
-            phase: `Mengimbas ${rawGrid.length.toLocaleString()} baris data dalam lembaran...`,
-            percent: 48,
-            processedRows: 0,
-            totalRows: rawGrid.length,
-            fileSizeMb,
-          });
-        }
-
-        // 1. Locate header row: scan first 25 rows for table headers
-        let headerRowIndex = 0;
-        let detectedColumns: string[] = [];
-
-        for (let r = 0; r < Math.min(25, rawGrid.length); r++) {
-          const row = rawGrid[r];
-          if (!Array.isArray(row)) continue;
-          
-          const nonBlankValues = row
-            .map((c) => (c !== undefined && c !== null ? String(c).trim() : ''))
-            .filter((s) => s.length > 0);
-
-          if (nonBlankValues.length >= 2) {
-            // Check if row contains standard customer header indicators
-            const containsHeaderKeyword = nonBlankValues.some((val) => {
-              const norm = normalizeHeaderKey(val);
-              return (
-                isAccountNoColumn(val) ||
-                isOwnerNameColumn(val) ||
-                isPhoneColumn(val) ||
-                isEmailColumn(val) ||
-                isIcColumn(val) ||
-                isStatusColumn(val) ||
-                norm.includes('akaun') ||
-                norm.includes('nama') ||
-                norm.includes('telefon') ||
-                norm.includes('handphone') ||
-                norm.includes('emel') ||
-                norm.includes('email') ||
-                norm.includes('status')
-              );
-            });
-
-            if (containsHeaderKeyword) {
-              headerRowIndex = r;
-              detectedColumns = row.map((c, idx) => {
-                const str = c !== undefined && c !== null ? String(c).trim() : '';
-                return str || `Lajur_${idx + 1}`;
-              });
-              break;
-            }
-          }
-        }
-
-        // If no keyword match found, use first row with at least 1 non-blank cell
-        if (detectedColumns.length === 0) {
-          for (let r = 0; r < Math.min(25, rawGrid.length); r++) {
-            const row = rawGrid[r];
-            if (Array.isArray(row) && row.some((c) => c !== undefined && c !== null && String(c).trim().length > 0)) {
-              headerRowIndex = r;
-              detectedColumns = row.map((c, idx) => {
-                const str = c !== undefined && c !== null ? String(c).trim() : '';
-                return str || `Lajur_${idx + 1}`;
-              });
-              break;
-            }
-          }
-        }
-
-        // Fallback default headers if still empty
-        if (detectedColumns.length === 0) {
-          detectedColumns = ['No Akaun', 'Nama Pemilik', 'No Kad Pengenalan', 'No Handphone', 'Emel Pemilik/Wakil', 'Kategori Akaun', 'Status'];
-        }
-
-        // Map column names to index positions
-        const colMap = buildColumnKeyMap(detectedColumns);
-        let colNoAkaun = colMap.noAkaunKey ? detectedColumns.indexOf(colMap.noAkaunKey) : detectedColumns.findIndex(isAccountNoColumn);
-        let colNama = colMap.namaKey ? detectedColumns.indexOf(colMap.namaKey) : detectedColumns.findIndex(isOwnerNameColumn);
-        let colIC = colMap.kadPengenalanKey ? detectedColumns.indexOf(colMap.kadPengenalanKey) : detectedColumns.findIndex(isIcColumn);
-        let colTel = colMap.noTelKey ? detectedColumns.indexOf(colMap.noTelKey) : detectedColumns.findIndex(isPhoneColumn);
-        let colEmail = colMap.emailKey ? detectedColumns.indexOf(colMap.emailKey) : detectedColumns.findIndex(isEmailColumn);
-        let colStatus = colMap.statusKey ? detectedColumns.indexOf(colMap.statusKey) : detectedColumns.findIndex(isStatusColumn);
-        let colKategori = colMap.kategoriKey ? detectedColumns.indexOf(colMap.kategoriKey) : detectedColumns.findIndex((c) => {
-          const n = normalizeHeaderKey(c);
-          return n.includes('kategori') || n.includes('category') || n.includes('jenis');
-        });
-        let colTarikh = colMap.tarikhDaftarKey ? detectedColumns.indexOf(colMap.tarikhDaftarKey) : detectedColumns.findIndex((c) => {
-          const n = normalizeHeaderKey(c);
-          return n.includes('tarikh') || n.includes('date');
-        });
-
-        // Smart positional fallback if headers are not explicitly labeled
-        if (colNoAkaun === -1 && detectedColumns.length > 0) colNoAkaun = 0;
-        if (colNama === -1 && detectedColumns.length > 1) colNama = 1;
-
-        const startRow = headerRowIndex + 1;
-        const totalDataRows = Math.max(0, rawGrid.length - startRow);
         const rawAccounts: CustomerAccount[] = [];
-        const chunkSize = 50000;
+        let primaryDetectedColumns: string[] = [];
+        let totalRowsAcrossAllSheets = 0;
         const nowIso = new Date().toISOString().replace('T', ' ').slice(0, 16);
         const todayDate = nowIso.slice(0, 10);
+        let globalRowIndex = 0;
 
-        for (let i = startRow; i < rawGrid.length; i += chunkSize) {
-          const end = Math.min(i + chunkSize, rawGrid.length);
+        for (let sIdx = 0; sIdx < workbook.SheetNames.length; sIdx++) {
+          const sheetName = workbook.SheetNames[sIdx];
+          const worksheet = workbook.Sheets[sheetName];
+          if (!worksheet || (!worksheet['!ref'] && Object.keys(worksheet).length === 0)) continue;
 
-          for (let j = i; j < end; j++) {
-            const row = rawGrid[j];
+          // Extract clean 2D array of cells for this sheet
+          const sheetGrid: any[][] = XLSX.utils.sheet_to_json(worksheet, {
+            header: 1,
+            defval: '',
+            blankrows: false,
+            raw: true,
+          });
+
+          if (!sheetGrid || sheetGrid.length === 0) continue;
+
+          totalRowsAcrossAllSheets += sheetGrid.length;
+
+          // 1. Locate header row in first 25 rows
+          let headerRowIndex = 0;
+          let sheetColumns: string[] = [];
+
+          for (let r = 0; r < Math.min(25, sheetGrid.length); r++) {
+            const row = sheetGrid[r];
+            if (!Array.isArray(row)) continue;
+            
+            const nonBlankValues = row
+              .map((c) => (c !== undefined && c !== null ? String(c).trim() : ''))
+              .filter((s) => s.length > 0);
+
+            if (nonBlankValues.length >= 2) {
+              const containsHeaderKeyword = nonBlankValues.some((val) => {
+                const norm = normalizeHeaderKey(val);
+                return (
+                  isAccountNoColumn(val) ||
+                  isOwnerNameColumn(val) ||
+                  isPhoneColumn(val) ||
+                  isEmailColumn(val) ||
+                  isIcColumn(val) ||
+                  isStatusColumn(val) ||
+                  norm.includes('akaun') ||
+                  norm.includes('nama') ||
+                  norm.includes('telefon') ||
+                  norm.includes('handphone') ||
+                  norm.includes('emel') ||
+                  norm.includes('email') ||
+                  norm.includes('status')
+                );
+              });
+
+              if (containsHeaderKeyword) {
+                headerRowIndex = r;
+                sheetColumns = row.map((c, idx) => {
+                  const str = c !== undefined && c !== null ? String(c).trim() : '';
+                  return str || `Lajur_${idx + 1}`;
+                });
+                break;
+              }
+            }
+          }
+
+          if (sheetColumns.length === 0) {
+            for (let r = 0; r < Math.min(25, sheetGrid.length); r++) {
+              const row = sheetGrid[r];
+              if (Array.isArray(row) && row.some((c) => c !== undefined && c !== null && String(c).trim().length > 0)) {
+                headerRowIndex = r;
+                sheetColumns = row.map((c, idx) => {
+                  const str = c !== undefined && c !== null ? String(c).trim() : '';
+                  return str || `Lajur_${idx + 1}`;
+                });
+                break;
+              }
+            }
+          }
+
+          if (sheetColumns.length === 0) {
+            sheetColumns = ['No Akaun', 'Nama Pemilik', 'No Kad Pengenalan', 'No Handphone', 'Emel Pemilik/Wakil', 'Kategori Akaun', 'Status'];
+          }
+
+          if (primaryDetectedColumns.length === 0) {
+            primaryDetectedColumns = sheetColumns;
+          }
+
+          const colMap = buildColumnKeyMap(sheetColumns);
+          let colNoAkaun = colMap.noAkaunKey ? sheetColumns.indexOf(colMap.noAkaunKey) : sheetColumns.findIndex(isAccountNoColumn);
+          let colNama = colMap.namaKey ? sheetColumns.indexOf(colMap.namaKey) : sheetColumns.findIndex(isOwnerNameColumn);
+          let colIC = colMap.kadPengenalanKey ? sheetColumns.indexOf(colMap.kadPengenalanKey) : sheetColumns.findIndex(isIcColumn);
+          let colTel = colMap.noTelKey ? sheetColumns.indexOf(colMap.noTelKey) : sheetColumns.findIndex(isPhoneColumn);
+          let colEmail = colMap.emailKey ? sheetColumns.indexOf(colMap.emailKey) : sheetColumns.findIndex(isEmailColumn);
+          let colStatus = colMap.statusKey ? sheetColumns.indexOf(colMap.statusKey) : sheetColumns.findIndex(isStatusColumn);
+          let colKategori = colMap.kategoriKey ? sheetColumns.indexOf(colMap.kategoriKey) : sheetColumns.findIndex((c) => {
+            const n = normalizeHeaderKey(c);
+            return n.includes('kategori') || n.includes('category') || n.includes('jenis');
+          });
+          let colTarikh = colMap.tarikhDaftarKey ? sheetColumns.indexOf(colMap.tarikhDaftarKey) : sheetColumns.findIndex((c) => {
+            const n = normalizeHeaderKey(c);
+            return n.includes('tarikh') || n.includes('date');
+          });
+
+          if (colNoAkaun === -1 && sheetColumns.length > 0) colNoAkaun = 0;
+          if (colNama === -1 && sheetColumns.length > 1) colNama = 1;
+
+          const startRow = headerRowIndex + 1;
+          for (let j = startRow; j < sheetGrid.length; j++) {
+            const row = sheetGrid[j];
             if (!Array.isArray(row) || row.length === 0) continue;
 
             const getVal = (idx: number): string => {
@@ -531,7 +520,6 @@ export async function parseAccountsExcel(
             const rawKat = getVal(colKategori);
             const rawDt = getVal(colTarikh);
 
-            // Check if row has any non-empty data
             let rowHasData = Boolean(rawNo || rawNama || rawIC || rawTel || rawMail || rawSt);
             if (!rowHasData) {
               for (let c = 0; c < row.length; c++) {
@@ -544,8 +532,9 @@ export async function parseAccountsExcel(
 
             if (!rowHasData) continue;
 
-            const noAkaun = rawNo || `ACC-${String(j).padStart(6, '0')}`;
-            const nama = rawNama || `Pelanggan ${j - startRow + 1}`;
+            globalRowIndex++;
+            const noAkaun = rawNo || `ACC-${String(globalRowIndex).padStart(6, '0')}`;
+            const nama = rawNama || `Pelanggan ${globalRowIndex}`;
             const kadPengenalan = rawIC;
             const noTel = rawTel;
             const email = rawMail;
@@ -563,14 +552,16 @@ export async function parseAccountsExcel(
             const kategoriAkaun = rawKat || 'Kediaman';
             const tarikhDaftar = rawDt || todayDate;
 
-            // Build dynamic row data dictionary matching detected columns
             const rowDataObj: Record<string, string> = {};
-            for (let c = 0; c < detectedColumns.length; c++) {
-              const colName = detectedColumns[c];
+            for (let c = 0; c < sheetColumns.length; c++) {
+              const colName = sheetColumns[c];
               rowDataObj[colName] = getVal(c);
             }
 
+            const rowId = `acc_row_${globalRowIndex}_${Math.random().toString(36).substring(2, 7)}`;
+
             rawAccounts.push({
+              id: rowId,
               noAkaun,
               nama,
               kadPengenalan,
@@ -585,75 +576,27 @@ export async function parseAccountsExcel(
               rawRowData: rowDataObj,
             });
           }
+        }
 
-          const processedCount = end - startRow;
-          const pct = Math.min(94, Math.round(50 + ((processedCount / Math.max(1, totalDataRows)) * 44)));
-          if (onProgress) {
-            onProgress({
-              phase: `Membaca & Memproses Strim Pantas (${processedCount.toLocaleString()} / ${totalDataRows.toLocaleString()} baris)...`,
-              percent: pct,
-              processedRows: processedCount,
-              totalRows: totalDataRows,
-              fileSizeMb,
-            });
-          }
-
-          // Non-blocking yield
-          await new Promise((r) => setTimeout(r, 0));
+        if (rawAccounts.length === 0) {
+          return resolve({ accounts: [], detectedColumns: primaryDetectedColumns, totalRows: 0 });
         }
 
         if (onProgress) {
           onProgress({
-            phase: 'Menyahduplikasi & Mengesahkan akaun unik...',
-            percent: 96,
+            phase: `Selesai! Berjaya mengekstrak semua ${rawAccounts.length.toLocaleString()} rekod baris fail Excel tanpa pemotongan / pemansuhan deduplikasi.`,
+            percent: 100,
             processedRows: rawAccounts.length,
             totalRows: rawAccounts.length,
             fileSizeMb,
           });
         }
 
-        // Deduplicate accounts by noAkaun in O(N) (Nyahduplikasi berasaskan No. Akaun yang sama)
-        const deduplicatedMap = new Map<string, CustomerAccount>();
-        let duplicatesInFile = 0;
-
-        for (let k = 0; k < rawAccounts.length; k++) {
-          const item = rawAccounts[k];
-          const key = item.noAkaun.trim().toUpperCase();
-          if (deduplicatedMap.has(key)) {
-            duplicatesInFile++;
-            const existing = deduplicatedMap.get(key)!;
-            deduplicatedMap.set(key, {
-              ...existing,
-              nama: item.nama && !item.nama.startsWith('Pelanggan') ? item.nama : existing.nama,
-              kadPengenalan: item.kadPengenalan || existing.kadPengenalan,
-              noTel: item.noTel || existing.noTel,
-              email: item.email || existing.email,
-              kategoriAkaun: item.kategoriAkaun || existing.kategoriAkaun,
-              status: item.status || existing.status,
-              rawRowData: { ...existing.rawRowData, ...item.rawRowData },
-            });
-          } else {
-            deduplicatedMap.set(key, item);
-          }
-        }
-
-        const accounts = Array.from(deduplicatedMap.values());
-
-        if (onProgress) {
-          onProgress({
-            phase: `Selesai! Berjaya mengekstrak ${accounts.length.toLocaleString()} akaun unik (${duplicatesInFile > 0 ? `${duplicatesInFile.toLocaleString()} No. Akaun berulang dinyahduplikasi` : 'Semua No. Akaun unik'}).`,
-            percent: 100,
-            processedRows: accounts.length,
-            totalRows: accounts.length,
-            fileSizeMb,
-          });
-        }
-
         resolve({
-          accounts,
-          detectedColumns,
-          totalRows: accounts.length,
-          duplicateCountInFile: duplicatesInFile,
+          accounts: rawAccounts,
+          detectedColumns: primaryDetectedColumns,
+          totalRows: rawAccounts.length,
+          duplicateCountInFile: 0,
           rawRowCount: rawAccounts.length,
         });
       } catch (err) {

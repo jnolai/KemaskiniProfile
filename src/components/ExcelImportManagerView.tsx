@@ -642,10 +642,10 @@ export const ExcelImportManagerView: React.FC<ExcelImportManagerViewProps> = ({
                 🚀 Tiada Had Baris (No Limit)
               </span>
               <span className="text-[10px] font-mono bg-stone-100 text-stone-700 px-2 py-0.5 rounded border border-stone-300">
-                ⚡ Pemprosesan Chunks 50k Baris
+                ⚡ Pemprosesan Strim Berkelajuan Tinggi
               </span>
-              <span className="text-[10px] font-mono bg-stone-100 text-stone-700 px-2 py-0.5 rounded border border-stone-300">
-                🔒 Nyahduplikasi Automatik O(1)
+              <span className="text-[10px] font-mono bg-emerald-50 text-emerald-900 px-2 py-0.5 rounded border border-emerald-300 font-bold">
+                ✓ No. Akaun Berulang Dikekalkan (Tiada Potongan)
               </span>
               <span className="text-[10px] font-mono bg-stone-100 text-stone-700 px-2 py-0.5 rounded border border-stone-300">
                 🛡️ Memori Ringan Dense Mode
@@ -703,7 +703,7 @@ export const ExcelImportManagerView: React.FC<ExcelImportManagerViewProps> = ({
         )}
 
         {/* Staging Confirmation Card (when a file has been read in Langkah 1) */}
-        {parseResult && deduplicationStats && (
+        {parseResult && (
           <div className="p-4 bg-stone-50 border border-stone-300 rounded-xl space-y-3.5">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2.5 border-b border-stone-200">
               <div className="flex items-center gap-2">
@@ -712,7 +712,7 @@ export const ExcelImportManagerView: React.FC<ExcelImportManagerViewProps> = ({
                   Pratonton Fail: {selectedFile?.name}
                 </span>
                 <span className="text-[10px] font-mono bg-white border border-stone-300 px-2 py-0.5 rounded font-bold text-emerald-800">
-                  {parseResult.accounts.length.toLocaleString()} Rekod Unik Dikesan
+                  {parseResult.accounts.length.toLocaleString()} Rekod Baris Sedia Dimasukkan
                 </span>
               </div>
 
@@ -728,7 +728,7 @@ export const ExcelImportManagerView: React.FC<ExcelImportManagerViewProps> = ({
                       : 'bg-white text-stone-700 border border-stone-300'
                   }`}
                 >
-                  Selaras & Tambah (Merge)
+                  Tambah & Selaraskan (Merge)
                 </button>
                 <button
                   type="button"
@@ -744,30 +744,24 @@ export const ExcelImportManagerView: React.FC<ExcelImportManagerViewProps> = ({
               </div>
             </div>
 
-            {/* ⚡ Nyahduplikasi Breakdown Badges */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+            {/* ⚡ Breakdown Badges */}
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
               <div className="p-2.5 bg-white border border-stone-200 rounded-lg space-y-0.5">
-                <div className="text-[10px] text-stone-500 font-mono">Baris Fail Dibaca</div>
+                <div className="text-[10px] text-stone-500 font-mono">Jumlah Baris Fail Dibaca</div>
                 <div className="text-sm font-bold font-mono text-stone-900">
-                  {deduplicationStats.rawRowCount.toLocaleString()}
+                  {parseResult.accounts.length.toLocaleString()}
                 </div>
               </div>
               <div className="p-2.5 bg-emerald-50/80 border border-emerald-200 rounded-lg space-y-0.5">
-                <div className="text-[10px] text-emerald-800 font-mono font-semibold">Akaun Unik Baharu</div>
+                <div className="text-[10px] text-emerald-800 font-mono font-semibold">Rekod Dimasukkan (100%)</div>
                 <div className="text-sm font-bold font-mono text-emerald-900">
-                  +{deduplicationStats.newUnique.toLocaleString()}
+                  {parseResult.accounts.length.toLocaleString()}
                 </div>
               </div>
-              <div className="p-2.5 bg-amber-50/80 border border-amber-200 rounded-lg space-y-0.5">
-                <div className="text-[10px] text-amber-800 font-mono font-semibold">No. Akaun Sama (Kemaskini)</div>
-                <div className="text-sm font-bold font-mono text-amber-900">
-                  {deduplicationStats.matchingInDb.toLocaleString()}
-                </div>
-              </div>
-              <div className="p-2.5 bg-stone-100 border border-stone-300 rounded-lg space-y-0.5">
-                <div className="text-[10px] text-stone-600 font-mono">Nyahduplikasi Dalam Fail</div>
-                <div className="text-sm font-bold font-mono text-stone-800">
-                  {deduplicationStats.duplicateCountInFile.toLocaleString()}
+              <div className="p-2.5 bg-stone-100 border border-stone-300 rounded-lg space-y-0.5 col-span-2 sm:col-span-1">
+                <div className="text-[10px] text-stone-600 font-mono">Status Nyahduplikasi</div>
+                <div className="text-sm font-bold font-mono text-emerald-800 flex items-center gap-1">
+                  <span>Dimansuhkan (Semua Kekal)</span>
                 </div>
               </div>
             </div>
@@ -776,7 +770,7 @@ export const ExcelImportManagerView: React.FC<ExcelImportManagerViewProps> = ({
             <div className="p-2.5 bg-emerald-50/60 border border-emerald-200 rounded-lg flex items-start gap-2 text-[11px] text-emerald-950 font-serif">
               <Info className="w-3.5 h-3.5 text-emerald-700 shrink-0 mt-0.5" />
               <div>
-                <strong>Peraturan Nyahduplikasi:</strong> Nyahduplikasi automatik hanya berfungsi sekiranya terdapat <strong>No. Akaun yang sama</strong> di dalam pangkalan data atau di dalam fail Excel. Rekod dengan No. Akaun berbeza akan ditambah sebagai akaun baharu.
+                <strong>Pemberitahuan:</strong> Fungsi Nyahduplikasi telah <strong>dimansuhkan sepenuhnya</strong>. Semua baris rekod termasuk baris yang mempunyai <strong>No. Akaun berulang</strong> akan disimpan 100% tanpa sebarang pemotongan atau penggabungan.
               </div>
             </div>
 

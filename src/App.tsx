@@ -136,24 +136,11 @@ export default function App() {
       const saved = localStorage.getItem(STORAGE_ACCOUNTS_KEY);
       if (saved !== null) {
         const parsed: CustomerAccount[] = JSON.parse(saved);
-        // Deduplicate by noAkaun to avoid duplicate key warnings from previous session
-        const dedupMap = new Map<string, CustomerAccount>();
-        parsed.forEach((a) => {
-          const key = a.noAkaun.trim();
-          if (!dedupMap.has(key)) {
-            dedupMap.set(key, a);
-          } else {
-            const prev = dedupMap.get(key)!;
-            dedupMap.set(key, {
-              ...prev,
-              nama: prev.nama && prev.nama !== 'Pelanggan' ? prev.nama : a.nama,
-              kadPengenalan: prev.kadPengenalan || a.kadPengenalan,
-              noTel: prev.noTel || a.noTel,
-              email: prev.email || a.email,
-            });
-          }
-        });
-        return Array.from(dedupMap.values());
+        // Ensure every account has a unique record id
+        return parsed.map((acc, idx) => ({
+          ...acc,
+          id: acc.id || `acc_${idx}_${acc.noAkaun || Math.random().toString(36).substring(2, 7)}`,
+        }));
       }
       if (isInitialized) {
         return [];
@@ -315,6 +302,7 @@ export default function App() {
 
     const updatedAccountWithFlag: CustomerAccount = {
       ...updated,
+      id: updated.id || existingAccount?.id || `acc_${Date.now()}_${updated.noAkaun}`,
       telahDikemaskini: true,
       updatedFields: changedFields.length > 0 ? changedFields : updated.updatedFields,
       rewardStatus: currentRewardStatus,
@@ -325,7 +313,12 @@ export default function App() {
       updateCount: (existingAccount?.updateCount || 0) + (changedFields.length > 0 ? 1 : 0),
     };
 
-    setAccounts((prev) => prev.map((a) => (a.noAkaun === updated.noAkaun ? updatedAccountWithFlag : a)));
+    setAccounts((prev) =>
+      prev.map((a) => {
+        const isTarget = updated.id && a.id ? a.id === updated.id : a.noAkaun === updated.noAkaun;
+        return isTarget ? updatedAccountWithFlag : a;
+      })
+    );
 
     // ⚡ Real-Time Cloud Save: Firestore
     saveAccountToFirestore(updatedAccountWithFlag).catch((err) => {
@@ -436,7 +429,7 @@ export default function App() {
     saveAccountToFirestore(newAcc).catch(console.warn);
   };
 
-  // Handle Batch Excel Import with merge or replace modes (Nyahduplikasi berdasarkan No. Akaun yang sama)
+  // Handle Batch Excel Import with merge or replace modes (Memelihara 100% semua baris & membenarkan No. Akaun berulang)
   const handleImportAccountsWithMode = (imported: CustomerAccount[], mode: 'merge' | 'replace' = 'merge') => {
     // ⚡ Real-Time Cloud Batch Save to Firestore
     batchSaveAccountsToFirestore(imported, mode).catch((err) => {
@@ -444,57 +437,25 @@ export default function App() {
     });
 
     if (mode === 'replace') {
-      const dedupMap = new Map<string, CustomerAccount>();
-      imported.forEach((item) => {
-        const key = item.noAkaun.trim().toUpperCase();
-        if (!dedupMap.has(key)) {
-          dedupMap.set(key, item);
-        } else {
-          const prev = dedupMap.get(key)!;
-          dedupMap.set(key, {
-            ...prev,
-            nama: item.nama && !item.nama.startsWith('Pelanggan') ? item.nama : prev.nama,
-            kadPengenalan: item.kadPengenalan || prev.kadPengenalan,
-            noTel: item.noTel || prev.noTel,
-            email: item.email || prev.email,
-            kategoriAkaun: item.kategoriAkaun || prev.kategoriAkaun,
-            status: item.status || prev.status,
-            rawRowData: { ...(prev.rawRowData || {}), ...(item.rawRowData || {}) },
-          });
-        }
-      });
-      setAccounts(Array.from(dedupMap.values()));
+      setAccounts(imported);
     } else {
       setAccounts((prev) => {
-        const existingMap = new Map<string, CustomerAccount>();
-        // Populate existing database accounts with uppercase trimmed keys
+        // In merge mode, preserve all incoming rows; if an exact unique id matches, update, otherwise append
+        const idMap = new Map<string, CustomerAccount>();
         prev.forEach((a) => {
-          existingMap.set(a.noAkaun.trim().toUpperCase(), a);
+          if (a.id) idMap.set(a.id, a);
         });
 
-        // Merge incoming records: if identical noAkaun is found, update it. If new, insert it.
+        const newItems: CustomerAccount[] = [];
         imported.forEach((item) => {
-          const key = item.noAkaun.trim().toUpperCase();
-          const existing = existingMap.get(key);
-          if (existing) {
-            // Nyahduplikasi: Kemas kini akaun sedia ada yang mempunyai No. Akaun sama
-            existingMap.set(key, {
-              ...existing,
-              nama: item.nama && !item.nama.startsWith('Pelanggan') ? item.nama : existing.nama,
-              kadPengenalan: item.kadPengenalan || existing.kadPengenalan,
-              kategoriAkaun: item.kategoriAkaun || existing.kategoriAkaun,
-              status: item.status || existing.status,
-              noTel: item.noTel || existing.noTel,
-              email: item.email || existing.email,
-              rawRowData: { ...(existing.rawRowData || {}), ...(item.rawRowData || {}) },
-              lastUpdated: new Date().toISOString().replace('T', ' ').slice(0, 16),
-            });
+          if (item.id && idMap.has(item.id)) {
+            idMap.set(item.id, item);
           } else {
-            // Rekod akaun baharu (No. Akaun unik belum wujud dalam pangkalan data)
-            existingMap.set(key, item);
+            newItems.push(item);
           }
         });
-        return Array.from(existingMap.values());
+
+        return [...Array.from(idMap.values()), ...newItems];
       });
     }
   };

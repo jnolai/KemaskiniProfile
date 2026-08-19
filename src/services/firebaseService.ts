@@ -22,6 +22,7 @@ const APP_CONFIG_COLLECTION = 'app_config';
  */
 function sanitizeAccountForFirestore(account: CustomerAccount): Record<string, any> {
   const clean: Record<string, any> = {
+    id: account.id || account.noAkaun || '',
     noAkaun: account.noAkaun || '',
     nama: account.nama || '',
     kadPengenalan: account.kadPengenalan || '',
@@ -159,7 +160,8 @@ export function subscribeToCustomColumns(
  * Save or update a single customer account in Firestore
  */
 export async function saveAccountToFirestore(account: CustomerAccount): Promise<void> {
-  const docRef = doc(db, ACCOUNTS_COLLECTION, account.noAkaun.trim());
+  const docId = (account.id || account.noAkaun).trim().replace(/[\/\s]/g, '_');
+  const docRef = doc(db, ACCOUNTS_COLLECTION, docId);
   await setDoc(docRef, sanitizeAccountForFirestore(account), { merge: true });
 }
 
@@ -213,7 +215,7 @@ async function safeCommitBatch(batch: ReturnType<typeof writeBatch>, retries = 3
 
 /**
  * Batch import customer accounts into Firestore with high-throughput batching
- * Uses optimized 400 docs/batch (Firestore limit is 500) and low-latency commits
+ * Preserves 100% of all accounts including duplicate account numbers
  */
 export async function batchSaveAccountsToFirestore(
   accounts: CustomerAccount[], 
@@ -250,21 +252,7 @@ export async function batchSaveAccountsToFirestore(
     }
   }
 
-  // Deduplicate incoming list by noAkaun in O(N)
-  const dedupMap = new Map<string, CustomerAccount>();
-  accounts.forEach((acc) => {
-    const key = acc.noAkaun.trim();
-    if (!dedupMap.has(key)) {
-      dedupMap.set(key, acc);
-    } else {
-      const prev = dedupMap.get(key)!;
-      dedupMap.set(key, { ...prev, ...acc });
-    }
-  });
-
-  const uniqueAccounts = Array.from(dedupMap.values());
-  const totalCount = uniqueAccounts.length;
-
+  const totalCount = accounts.length;
   if (totalCount === 0) return;
 
   // Batch insert/update with 400 operations per batch
@@ -273,11 +261,12 @@ export async function batchSaveAccountsToFirestore(
   let opCount = 0;
   let savedCount = 0;
 
-  for (let i = 0; i < uniqueAccounts.length; i++) {
-    const acc = uniqueAccounts[i];
-    if (!acc.noAkaun) continue;
+  for (let i = 0; i < accounts.length; i++) {
+    const acc = accounts[i];
+    const rawId = acc.id || `acc_${i}_${acc.noAkaun}`;
+    const docId = rawId.trim().replace(/[\/\s]/g, '_');
     
-    const docRef = doc(db, ACCOUNTS_COLLECTION, acc.noAkaun.trim());
+    const docRef = doc(db, ACCOUNTS_COLLECTION, docId);
     currentBatch.set(docRef, sanitizeAccountForFirestore(acc), { merge: true });
     opCount++;
 

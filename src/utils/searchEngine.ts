@@ -16,8 +16,9 @@ export interface IndexedAccount {
 }
 
 export interface AccountSearchIndex {
-  exactMap: Map<string, CustomerAccount>;
-  alphaMap: Map<string, CustomerAccount>;
+  exactMap: Map<string, CustomerAccount[]>; // Groups multiple accounts sharing the same No Akaun
+  exactIdMap: Map<string, CustomerAccount>; // O(1) lookup by unique record ID
+  alphaMap: Map<string, CustomerAccount[]>;
   indexedList: IndexedAccount[];
   totalCount: number;
 }
@@ -40,11 +41,12 @@ export function toAlphaNumeric(q: string): string {
 
 /**
  * Builds an ultra-fast O(1) in-memory index for tens of thousands of accounts.
- * This takes only a few milliseconds even on 100,000 records and caches tokens.
+ * Safely preserves duplicate account numbers and groups them.
  */
 export function buildAccountSearchIndex(accounts: CustomerAccount[]): AccountSearchIndex {
-  const exactMap = new Map<string, CustomerAccount>();
-  const alphaMap = new Map<string, CustomerAccount>();
+  const exactMap = new Map<string, CustomerAccount[]>();
+  const exactIdMap = new Map<string, CustomerAccount>();
+  const alphaMap = new Map<string, CustomerAccount[]>();
   const indexedList: IndexedAccount[] = new Array(accounts.length);
 
   for (let i = 0; i < accounts.length; i++) {
@@ -52,6 +54,7 @@ export function buildAccountSearchIndex(accounts: CustomerAccount[]): AccountSea
     const rawNo = acc.noAkaun || '';
     const normNo = rawNo.trim().toLowerCase();
     const alphaNo = normNo.replace(/[^a-z0-9]/g, '');
+    const accId = acc.id || `acc_${i}_${normNo}`;
 
     const normNama = (acc.nama || '').trim().toLowerCase();
     const normIC = (acc.kadPengenalan || '').trim().toLowerCase();
@@ -62,11 +65,26 @@ export function buildAccountSearchIndex(accounts: CustomerAccount[]): AccountSea
     const normReward = (acc.rewardCode || '').trim().toLowerCase();
 
     // Map lookups for instant O(1) lookup
-    if (normNo) {
-      if (!exactMap.has(normNo)) exactMap.set(normNo, acc);
+    if (accId) {
+      exactIdMap.set(accId, acc);
     }
+
+    if (normNo) {
+      const existing = exactMap.get(normNo);
+      if (existing) {
+        existing.push(acc);
+      } else {
+        exactMap.set(normNo, [acc]);
+      }
+    }
+
     if (alphaNo) {
-      if (!alphaMap.has(alphaNo)) alphaMap.set(alphaNo, acc);
+      const existingAlpha = alphaMap.get(alphaNo);
+      if (existingAlpha) {
+        existingAlpha.push(acc);
+      } else {
+        alphaMap.set(alphaNo, [acc]);
+      }
     }
 
     // Combined search blob for broad multi-field filtering
@@ -89,6 +107,7 @@ export function buildAccountSearchIndex(accounts: CustomerAccount[]): AccountSea
 
   return {
     exactMap,
+    exactIdMap,
     alphaMap,
     indexedList,
     totalCount: accounts.length,
@@ -97,9 +116,7 @@ export function buildAccountSearchIndex(accounts: CustomerAccount[]): AccountSea
 
 /**
  * Searches the index strictly for Account Number (e.g. for Customer Portal).
- * 1. Checks O(1) exact map
- * 2. Checks O(1) alphanumeric map
- * 3. Scans prefix / substring if no single exact match
+ * Returns ALL accounts that match the account number (including multiple rows for the same No Akaun).
  */
 export function fastLookupByAccountNo(
   index: AccountSearchIndex,
@@ -117,17 +134,25 @@ export function fastLookupByAccountNo(
 
   const alphaQ = toAlphaNumeric(normQ);
 
-  // 1. Direct O(1) Exact Match
-  const exact = index.exactMap.get(normQ);
-  if (exact) {
-    return { exactMatch: exact, results: [exact], isExact: true };
+  // 1. Direct O(1) Exact Match (returns all accounts with this account number)
+  const exactList = index.exactMap.get(normQ);
+  if (exactList && exactList.length > 0) {
+    return { 
+      exactMatch: exactList.length === 1 ? exactList[0] : null, 
+      results: exactList, 
+      isExact: true 
+    };
   }
 
   // 2. Direct O(1) Alphanumeric Match (e.g., handles dashes "ACC-12345" vs "acc12345")
   if (alphaQ) {
-    const alphaExact = index.alphaMap.get(alphaQ);
-    if (alphaExact) {
-      return { exactMatch: alphaExact, results: [alphaExact], isExact: true };
+    const alphaExactList = index.alphaMap.get(alphaQ);
+    if (alphaExactList && alphaExactList.length > 0) {
+      return { 
+        exactMatch: alphaExactList.length === 1 ? alphaExactList[0] : null, 
+        results: alphaExactList, 
+        isExact: true 
+      };
     }
   }
 

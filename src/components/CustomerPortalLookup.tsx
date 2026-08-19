@@ -65,6 +65,7 @@ export const CustomerPortalLookup: React.FC<CustomerPortalLookupProps> = ({
   const [searchInput, setSearchInput] = useState('');
   const [hasSearched, setHasSearched] = useState(false);
   const [activeAccountNo, setActiveAccountNo] = useState<string | null>(null);
+  const [selectedAccount, setSelectedAccount] = useState<CustomerAccount | null>(null);
   const [isSearchingLiveGoogleSheet, setIsSearchingLiveGoogleSheet] = useState(false);
   const [isSyncingSheets, setIsSyncingSheets] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -111,11 +112,16 @@ export const CustomerPortalLookup: React.FC<CustomerPortalLookupProps> = ({
   useEffect(() => {
     if (initialAccountNo) {
       const lookup = fastLookupByAccountNo(searchIndex, initialAccountNo);
-      if (lookup.exactMatch) {
-        setSearchInput(lookup.exactMatch.noAkaun);
-        setActiveAccountNo(lookup.exactMatch.noAkaun);
+      if (lookup.results && lookup.results.length > 0) {
+        setSearchInput(initialAccountNo);
+        setActiveAccountNo(initialAccountNo);
+        if (lookup.results.length === 1) {
+          setSelectedAccount(lookup.results[0]);
+        } else {
+          setSelectedAccount(null);
+        }
         setHasSearched(true);
-        addRecentSearch(lookup.exactMatch.noAkaun);
+        addRecentSearch(initialAccountNo);
       }
     }
   }, [initialAccountNo, searchIndex]);
@@ -132,16 +138,19 @@ export const CustomerPortalLookup: React.FC<CustomerPortalLookupProps> = ({
 
   // If only 1 result is found after searching, auto-select it
   useEffect(() => {
-    if (hasSearched && searchResults.length === 1 && !activeAccountNo) {
+    if (hasSearched && searchResults.length === 1 && !selectedAccount) {
       setActiveAccountNo(searchResults[0].noAkaun);
+      setSelectedAccount(searchResults[0]);
     }
-  }, [hasSearched, searchResults, activeAccountNo]);
+  }, [hasSearched, searchResults, selectedAccount]);
 
-  // Active selected account object via O(1) map lookup
+  // Active selected account object
   const activeAccount = useMemo(() => {
+    if (selectedAccount) return selectedAccount;
     if (!activeAccountNo) return null;
-    return searchIndex.exactMap.get(activeAccountNo.trim().toLowerCase()) || null;
-  }, [searchIndex, activeAccountNo]);
+    const list = searchIndex.exactMap.get(activeAccountNo.trim().toLowerCase());
+    return list && list.length === 1 ? list[0] : null;
+  }, [searchIndex, activeAccountNo, selectedAccount]);
 
   // Sync form inputs whenever active account changes
   useEffect(() => {
@@ -151,11 +160,12 @@ export const CustomerPortalLookup: React.FC<CustomerPortalLookupProps> = ({
       setSavedSuccess(false);
       setValidationError(null);
     }
-  }, [activeAccount?.noAkaun]);
+  }, [activeAccount?.id || activeAccount?.noAkaun]);
 
   const selectAccountDirectly = (account: CustomerAccount) => {
     setSearchInput(account.noAkaun);
     setActiveAccountNo(account.noAkaun);
+    setSelectedAccount(account);
     setHasSearched(true);
     addRecentSearch(account.noAkaun);
     showInfo('Akaun Dipilih', `Profil bagi No. Akaun "${account.noAkaun}" dimuatkan serta-merta.`);
@@ -249,6 +259,7 @@ export const CustomerPortalLookup: React.FC<CustomerPortalLookupProps> = ({
     setSearchInput('');
     setHasSearched(false);
     setActiveAccountNo(null);
+    setSelectedAccount(null);
     setValidationError(null);
     setSavedSuccess(false);
     if (onClearInitialAccount) {
@@ -622,8 +633,8 @@ export const CustomerPortalLookup: React.FC<CustomerPortalLookupProps> = ({
               const isUpdated = acc.telahDikemaskini;
               return (
                 <div
-                  key={`search_res_${acc.noAkaun}_${index}`}
-                  onClick={() => setActiveAccountNo(acc.noAkaun)}
+                  key={`search_res_${acc.id || acc.noAkaun}_${index}`}
+                  onClick={() => selectAccountDirectly(acc)}
                   className={`p-4 rounded-xl border transition-all cursor-pointer hover:shadow-xs flex flex-col justify-between ${
                     isUpdated
                       ? 'bg-emerald-50/80 border-emerald-300 hover:bg-emerald-100/70 border-l-4 border-l-emerald-600'
