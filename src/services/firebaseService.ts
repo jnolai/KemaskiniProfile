@@ -2,11 +2,13 @@ import {
   collection, 
   doc, 
   setDoc, 
+  getDoc,
   getDocs, 
   deleteDoc, 
   onSnapshot, 
   writeBatch,
   query,
+  where,
   orderBy,
   limit
 } from 'firebase/firestore';
@@ -456,6 +458,85 @@ export async function clearAllAuditLogsInFirestore(): Promise<void> {
 }
 
 /**
+ * Direct fetch all customer accounts from Firestore
+ */
+export async function fetchAccountsFromFirestore(): Promise<CustomerAccount[]> {
+  if (isCloudQuotaExceeded) return [];
+  try {
+    const colRef = collection(db, ACCOUNTS_COLLECTION);
+    const snapshot = await getDocs(colRef);
+    const list: CustomerAccount[] = [];
+    snapshot.forEach((docSnap) => {
+      list.push(docSnap.data() as CustomerAccount);
+    });
+    return list;
+  } catch (err: any) {
+    checkAndMarkQuotaError(err);
+    console.warn('[Firestore] Failed to fetch accounts directly:', err);
+    return [];
+  }
+}
+
+/**
+ * Direct search a single account from Firestore by account number
+ */
+export async function fetchSingleAccountFromFirestore(accountNo: string): Promise<CustomerAccount | null> {
+  if (!accountNo) return null;
+  const qClean = accountNo.trim();
+  if (!qClean) return null;
+
+  try {
+    // 1. Try direct doc lookup by formatted ID
+    const docId = qClean.replace(/[\/\s]/g, '_');
+    const docRef = doc(db, ACCOUNTS_COLLECTION, docId);
+    const docSnap = await getDoc(docRef);
+    if (docSnap.exists()) {
+      return docSnap.data() as CustomerAccount;
+    }
+
+    // 2. Try querying by noAkaun field
+    const colRef = collection(db, ACCOUNTS_COLLECTION);
+    const q = query(colRef, where('noAkaun', '==', qClean), limit(1));
+    const snapshot = await getDocs(q);
+    if (!snapshot.empty) {
+      return snapshot.docs[0].data() as CustomerAccount;
+    }
+
+    // 3. Try lowercase/trimmed match if needed
+    const qLower = query(colRef, where('noAkaun', '==', qClean.toUpperCase()), limit(1));
+    const snapshotLower = await getDocs(qLower);
+    if (!snapshotLower.empty) {
+      return snapshotLower.docs[0].data() as CustomerAccount;
+    }
+
+    return null;
+  } catch (err) {
+    console.warn('[Firestore] Direct single account lookup error:', err);
+    return null;
+  }
+}
+
+/**
+ * Direct fetch audit logs from Firestore
+ */
+export async function fetchAuditLogsFromFirestore(): Promise<ProfileUpdateAuditLog[]> {
+  if (isCloudQuotaExceeded) return [];
+  try {
+    const colRef = collection(db, AUDIT_LOGS_COLLECTION);
+    const q = query(colRef, orderBy('timestamp', 'desc'), limit(500));
+    const snapshot = await getDocs(q);
+    const list: ProfileUpdateAuditLog[] = [];
+    snapshot.forEach((docSnap) => {
+      list.push(docSnap.data() as ProfileUpdateAuditLog);
+    });
+    return list;
+  } catch (err: any) {
+    checkAndMarkQuotaError(err);
+    return [];
+  }
+}
+
+/**
  * Test connectivity to Firestore on application startup
  */
 export async function testFirestoreConnection(): Promise<boolean> {
@@ -472,5 +553,6 @@ export async function testFirestoreConnection(): Promise<boolean> {
     return false;
   }
 }
+
 
 

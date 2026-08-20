@@ -34,6 +34,7 @@ import { CustomerAccount } from '../types';
 import { generateProfileSummaryPDF } from '../utils/pdfReceiptHelper';
 import { useToast } from '../context/ToastContext';
 import { searchAccountInGoogleSheetLive, getStoredGoogleSheetsConfig } from '../services/googleSheetsService';
+import { fetchSingleAccountFromFirestore } from '../services/firebaseService';
 import { 
   buildAccountSearchIndex, 
   fastLookupByAccountNo 
@@ -250,7 +251,28 @@ export const CustomerPortalLookup: React.FC<CustomerPortalLookupProps> = ({
       return;
     }
 
-    // 2. If not found locally, and Google Sheets is connected: Query connected Google Sheet LIVE!
+    // 2. Fallback: Query Cloud Firestore directly in real-time
+    try {
+      const cloudAccount = await fetchSingleAccountFromFirestore(q);
+      if (cloudAccount) {
+        if (onAddFetchedAccount) {
+          onAddFetchedAccount(cloudAccount);
+        }
+        setHasSearched(true);
+        setActiveAccountNo(cloudAccount.noAkaun);
+        setSelectedAccount(cloudAccount);
+        addRecentSearch(cloudAccount.noAkaun);
+        showSuccess(
+          'Akaun Ditemui dari Pangkalan Data Awan!',
+          `Profil bagi No. Akaun ${cloudAccount.noAkaun} (${cloudAccount.nama}) berjaya dimuatkan daripada Cloud Firestore.`
+        );
+        return;
+      }
+    } catch (err) {
+      console.warn('[Firestore] Live single search fallback failed:', err);
+    }
+
+    // 3. If not found in cloud, and Google Sheets is connected: Query connected Google Sheet LIVE!
     if (isSheetActive) {
       setIsSearchingLiveGoogleSheet(true);
       try {
@@ -276,7 +298,7 @@ export const CustomerPortalLookup: React.FC<CustomerPortalLookupProps> = ({
       }
     }
 
-    // 3. Not found anywhere
+    // 4. Not found anywhere
     setHasSearched(true);
     setActiveAccountNo(null);
     showError(

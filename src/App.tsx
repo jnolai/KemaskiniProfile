@@ -29,6 +29,8 @@ import { Lock, ShieldAlert, ArrowLeft, KeyRound, Cloud, CloudCheck, CloudOff, Da
 import { 
   subscribeToAccounts, 
   subscribeToAuditLogs, 
+  fetchAccountsFromFirestore,
+  fetchAuditLogsFromFirestore,
   saveAccountToFirestore, 
   saveAuditLogToFirestore, 
   batchSaveAccountsToFirestore, 
@@ -122,35 +124,6 @@ export default function App() {
     setGsConfig(current);
   }, [activeTab]);
 
-  // Clean legacy test storage on initialization and ensure clean slate
-  useEffect(() => {
-    try {
-      const isCleanV6 = localStorage.getItem('customer_portal_cleaned_testing_data_v6');
-      if (!isCleanV6) {
-        localStorage.removeItem('customer_portal_accounts_v1');
-        localStorage.removeItem('customer_portal_accounts_v2');
-        localStorage.removeItem('customer_portal_accounts_v3');
-        localStorage.removeItem('customer_portal_accounts_v4');
-        localStorage.removeItem('customer_portal_accounts_v5');
-        localStorage.removeItem('customer_portal_audit_logs_v1');
-        localStorage.removeItem('customer_portal_audit_logs_v2');
-        localStorage.removeItem('customer_portal_audit_logs_v3');
-        localStorage.removeItem('customer_portal_audit_logs_v4');
-        localStorage.removeItem('customer_portal_audit_logs_v5');
-        localStorage.setItem(STORAGE_ACCOUNTS_KEY, JSON.stringify([]));
-        localStorage.setItem(STORAGE_AUDIT_LOGS_KEY, JSON.stringify([]));
-        localStorage.setItem(STORAGE_DB_INITIALIZED_KEY, 'true');
-        sessionStorage.removeItem('portal_recent_searches');
-        clearAllIDB().catch(() => {});
-        clearAllAccountsInFirestore().catch(() => {});
-        clearAllAuditLogsInFirestore().catch(() => {});
-        setAccounts([]);
-        setAuditLogs([]);
-        localStorage.setItem('customer_portal_cleaned_testing_data_v6', 'true');
-      }
-    } catch {}
-  }, []);
-
   // Accounts state with LocalStorage - initialized from cache then synced live with Firestore
   const [accounts, setAccounts] = useState<CustomerAccount[]>(() => {
     try {
@@ -158,11 +131,12 @@ export default function App() {
       const saved = localStorage.getItem(STORAGE_ACCOUNTS_KEY);
       if (saved !== null) {
         const parsed: CustomerAccount[] = JSON.parse(saved);
-        // Ensure every account has a unique record id
-        return parsed.map((acc, idx) => ({
-          ...acc,
-          id: acc.id || `acc_${idx}_${acc.noAkaun || Math.random().toString(36).substring(2, 7)}`,
-        }));
+        if (parsed.length > 0) {
+          return parsed.map((acc, idx) => ({
+            ...acc,
+            id: acc.id || `acc_${idx}_${acc.noAkaun || Math.random().toString(36).substring(2, 7)}`,
+          }));
+        }
       }
       if (isInitialized) {
         return [];
@@ -173,7 +147,7 @@ export default function App() {
     }
   });
 
-  // Audit Logs state - starts completely clean/empty
+  // Audit Logs state
   const [auditLogs, setAuditLogs] = useState<ProfileUpdateAuditLog[]>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_AUDIT_LOGS_KEY);
@@ -183,13 +157,12 @@ export default function App() {
     return [];
   });
 
-  // ⚡ Live Firestore Real-Time Subscriptions & Local IndexedDB Initialization
+  // ⚡ Live Firestore Real-Time Subscriptions & Cross-Device Cloud Data Synchronization
   useEffect(() => {
-    // Attempt to load from high-capacity IndexedDB on startup (overcomes the 5MB / 2,500 limit)
+    // 1. Attempt to load from high-capacity IndexedDB on startup
     loadAccountsFromIDB().then((cachedAccounts) => {
       if (cachedAccounts && cachedAccounts.length > 0) {
         setAccounts((prev) => {
-          // If IndexedDB has more records or different dataset than local slice, load all of them
           if (cachedAccounts.length >= prev.length || prev === initialCustomerAccounts) {
             return cachedAccounts;
           }
@@ -204,12 +177,37 @@ export default function App() {
       }
     }).catch(() => {});
 
+    // 2. Direct fetch from Cloud Firestore (ensures instant data fetch across any new device/browser)
+    fetchAccountsFromFirestore().then((cloudAccounts) => {
+      if (cloudAccounts && cloudAccounts.length > 0) {
+        setIsCloudConnected(true);
+        setAccounts(cloudAccounts);
+        saveAccountsToIDB(cloudAccounts).catch(() => {});
+        try {
+          localStorage.setItem(STORAGE_DB_INITIALIZED_KEY, 'true');
+        } catch {}
+      }
+    }).catch((err) => {
+      console.warn('[Firestore] Direct fetch initial warning:', err);
+    });
+
+    fetchAuditLogsFromFirestore().then((cloudLogs) => {
+      if (cloudLogs && cloudLogs.length > 0) {
+        setAuditLogs(cloudLogs);
+        saveAuditLogsToIDB(cloudLogs).catch(() => {});
+      }
+    }).catch(() => {});
+
+    // 3. Real-time Firestore snapshot listeners
     const unsubscribeAccounts = subscribeToAccounts(
       (firestoreAccounts) => {
         setIsCloudConnected(true);
         if (firestoreAccounts && firestoreAccounts.length > 0) {
           setAccounts(firestoreAccounts);
           saveAccountsToIDB(firestoreAccounts).catch(() => {});
+          try {
+            localStorage.setItem(STORAGE_DB_INITIALIZED_KEY, 'true');
+          } catch {}
         }
       },
       (err) => {
