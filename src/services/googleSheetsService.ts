@@ -8,6 +8,8 @@ import {
   isEmailColumn, 
   isStatusColumn 
 } from '../utils/excelHelper';
+import { saveGoogleSheetsConfigToFirestore, fetchGoogleSheetsConfigFromFirestore } from './firebaseService';
+import * as XLSX from 'xlsx';
 
 const STORAGE_GS_CONFIG = 'customer_portal_google_sheets_config_v1';
 const STORAGE_GS_TOKEN = 'customer_portal_gs_oauth_token';
@@ -76,13 +78,19 @@ export function getStoredGoogleSheetsConfig(): GoogleSheetsConfig {
 }
 
 /**
- * Save Google Sheets config
+ * Save Google Sheets config locally and push to Cloud Firestore so all devices have access
  */
-export function saveGoogleSheetsConfig(config: GoogleSheetsConfig): void {
+export function saveGoogleSheetsConfig(config: GoogleSheetsConfig, skipCloudSync = false): void {
   try {
     localStorage.setItem(STORAGE_GS_CONFIG, JSON.stringify(config));
   } catch (e) {
-    console.error('Error saving Google Sheets config:', e);
+    console.error('Error saving Google Sheets config locally:', e);
+  }
+
+  if (!skipCloudSync) {
+    saveGoogleSheetsConfigToFirestore(config).catch((err) => {
+      console.warn('Could not sync Google Sheets config to Firestore:', err);
+    });
   }
 }
 
@@ -392,7 +400,7 @@ export function parseSheetRowsToAccounts(rows: any[][]): {
 }
 
 /**
- * Fetch Google Sheet via Google Visualization API (Public / Shared link - NO OAuth required!)
+ * Fetch Google Sheet via Google Visualization API or Direct CSV Export (Public / Shared link - NO OAuth required!)
  */
 export async function fetchGoogleSheetViaGViz(
   spreadsheetId: string,
@@ -403,22 +411,55 @@ export async function fetchGoogleSheetViaGViz(
     throw new Error('Sila masukkan Google Sheet ID atau pautan URL yang sah.');
   }
 
-  // Construct Google Visualization API query endpoint
-  const url = `https://docs.google.com/spreadsheets/d/${cleanId}/gviz/tq?tqx=out:json&sheet=${encodeURIComponent(sheetName)}`;
-  
-  const response = await fetch(url);
-  if (!response.ok) {
-    // Try without sheet parameter
-    const fallbackUrl = `https://docs.google.com/spreadsheets/d/${cleanId}/gviz/tq?tqx=out:json`;
-    const fallbackRes = await fetch(fallbackUrl);
-    if (!fallbackRes.ok) {
-      throw new Error(`Gagal membaca Google Sheet (Status ${response.status}). Sila pastikan helaian dikongsi (General Access: Anyone with the link can view/edit).`);
+  // Strategy 1: Google Visualization API with sheet parameter
+  try {
+    const url = `https://docs.google.com/spreadsheets/d/${cleanId}/gviz/tq?tqx=out:json&sheet=${encodeURIComponent(sheetName)}`;
+    const response = await fetch(url);
+    if (response.ok) {
+      const text = await response.text();
+      return parseGVizResponse(text);
     }
-    return parseGVizResponse(await fallbackRes.text());
+  } catch (err) {
+    console.info('[GViz] Strategy 1 (sheetName) failed, trying fallback...', err);
   }
 
-  const text = await response.text();
-  return parseGVizResponse(text);
+  // Strategy 2: Google Visualization API without sheet parameter (defaults to first tab)
+  try {
+    const fallbackUrl = `https://docs.google.com/spreadsheets/d/${cleanId}/gviz/tq?tqx=out:json`;
+    const fallbackRes = await fetch(fallbackUrl);
+    if (fallbackRes.ok) {
+      const text = await fallbackRes.text();
+      return parseGVizResponse(text);
+    }
+  } catch (err) {
+    console.info('[GViz] Strategy 2 (default tab) failed, trying CSV export fallback...', err);
+  }
+
+  // Strategy 3: Direct CSV Export URL (Standard for published/shared Google Sheets)
+  try {
+    const csvUrl = `https://docs.google.com/spreadsheets/d/${cleanId}/export?format=csv`;
+    const csvRes = await fetch(csvUrl);
+    if (csvRes.ok) {
+      const csvText = await csvRes.text();
+      if (csvText && !csvText.trim().startsWith('<!DOCTYPE html')) {
+        const workbook = XLSX.read(csvText, { type: 'string' });
+        const firstSheetName = workbook.SheetNames[0];
+        if (firstSheetName) {
+          const worksheet = workbook.Sheets[firstSheetName];
+          const rows: any[][] = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '' });
+          if (rows && rows.length > 0) {
+            return rows;
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.info('[GViz] Strategy 3 (CSV Export) failed...', err);
+  }
+
+  throw new Error(
+    `Gagal membaca Google Sheet. Sila pastikan pautan helaian telah ditetapkan kepada akses umum "Anyone with the link can view/edit" (Siapa sahaja yang mempunyai pautan boleh melihat/mengedit).`
+  );
 }
 
 /**
@@ -677,14 +718,41 @@ export async function updateSingleCustomerInGoogleSheet(
   spreadsheetId: string,
   updatedAccount: CustomerAccount,
   sheetName: string = 'Sheet1',
-  token?: string
+  token?: string,
+  customConfig?: GoogleSheetsConfig
 ): Promise<boolean> {
-  const cleanId = extractSpreadsheetId(spreadsheetId);
+  const config = customConfig || getStoredGoogleSheetsConfig();
+  const cleanId = extractSpreadsheetId(spreadsheetId || config.spreadsheetId);
+
+  // Strategy 1: If Google Apps Script Webhook URL is configured, use it for direct 2-way sync from ANY device/domain!
+  if (config.appsScriptUrl && config.appsScriptUrl.startsWith('http')) {
+    try {
+      const resp = await fetch(config.appsScriptUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        mode: 'cors',
+        body: JSON.stringify({
+          action: 'update',
+          spreadsheetId: cleanId,
+          sheetName: sheetName || config.sheetName || 'Sheet1',
+          account: updatedAccount
+        })
+      });
+      if (resp.ok) {
+        return true;
+      }
+    } catch (webhookErr) {
+      console.warn('Apps Script webhook update attempt failed:', webhookErr);
+    }
+  }
+
   const authToken = token || getStoredOAuthToken();
   if (!cleanId || !authToken) return false;
 
   try {
-    // 1. Fetch current Sheet values to find matching row index
+    // 2. Fetch current Sheet values to find matching row index via Google Sheets API v4
     const data = await fetchGoogleSheetViaAPI(cleanId, `${sheetName}!A1:L5000`, authToken);
     const rows = data.rows;
     if (!rows || rows.length <= 1) return false;
@@ -790,7 +858,7 @@ export async function fetchLiveAccountsFromGoogleSheets(customConfig?: GoogleShe
   error?: string;
 }> {
   const config = customConfig || getStoredGoogleSheetsConfig();
-  if (!config.isConnected || !config.spreadsheetId) {
+  if (!config.isConnected || (!config.spreadsheetId && !config.appsScriptUrl)) {
     return { 
       success: false, 
       accounts: [], 
@@ -807,16 +875,45 @@ export async function fetchLiveAccountsFromGoogleSheets(customConfig?: GoogleShe
     let rows: any[][] = [];
     let title = config.spreadsheetName || 'Pangkalan Data Google Sheets';
 
-    if (token) {
+    // Strategy 1: Google Apps Script Webhook (Fast & Direct)
+    if (config.appsScriptUrl && config.appsScriptUrl.startsWith('http')) {
+      try {
+        const gasUrl = `${config.appsScriptUrl}${config.appsScriptUrl.includes('?') ? '&' : '?'}action=getAll&spreadsheetId=${encodeURIComponent(cleanId)}&sheetName=${encodeURIComponent(config.sheetName || 'Sheet1')}`;
+        const gasRes = await fetch(gasUrl);
+        if (gasRes.ok) {
+          const gasData = await gasRes.json();
+          if (Array.isArray(gasData) && gasData.length > 0) {
+            // Check if already parsed as accounts or 2D array
+            if (gasData[0] && typeof gasData[0] === 'object' && gasData[0].noAkaun) {
+              return {
+                success: true,
+                accounts: gasData as CustomerAccount[],
+                totalRows: gasData.length,
+                sheetTitle: title
+              };
+            } else if (Array.isArray(gasData[0])) {
+              rows = gasData;
+            }
+          }
+        }
+      } catch (gasErr) {
+        console.info('[AppsScript] Live fetch fallback to GViz/API...', gasErr);
+      }
+    }
+
+    // Strategy 2: OAuth API if token available
+    if (rows.length === 0 && token && cleanId) {
       try {
         const res = await fetchGoogleSheetViaAPI(cleanId, `${config.sheetName || 'Sheet1'}!A1:Z5000`, token);
         rows = res.rows;
         if (res.title) title = res.title;
       } catch (apiErr) {
         console.warn('Google Sheets API token expired/failed, trying GViz fallback:', apiErr);
-        rows = await fetchGoogleSheetViaGViz(cleanId, config.sheetName || 'Sheet1');
       }
-    } else {
+    }
+
+    // Strategy 3: GViz / Public Link / CSV fallback
+    if (rows.length === 0 && cleanId) {
       rows = await fetchGoogleSheetViaGViz(cleanId, config.sheetName || 'Sheet1');
     }
 
@@ -866,9 +963,22 @@ export async function searchAccountInGoogleSheetLive(
   const qAlphaNum = q.replace(/[^a-z0-9]/g, '');
 
   const match = result.accounts.find((a) => {
-    const aNo = a.noAkaun.toLowerCase().trim();
+    const aNo = (a.noAkaun || '').toLowerCase().trim();
     const aAlphaNum = aNo.replace(/[^a-z0-9]/g, '');
-    return aNo === q || aNo.includes(q) || (qAlphaNum.length > 0 && aAlphaNum.includes(qAlphaNum));
+    const aIc = (a.kadPengenalan || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    const aPhone = (a.noTel || '').toLowerCase().replace(/[^0-9]/g, '');
+
+    // Account No exact or sanitized match
+    if (aNo === q || aAlphaNum === qAlphaNum) return true;
+    if (aNo.includes(q) || (qAlphaNum.length >= 3 && aAlphaNum.includes(qAlphaNum))) return true;
+
+    // IC match
+    if (qAlphaNum.length >= 6 && aIc === qAlphaNum) return true;
+
+    // Phone match
+    if (qAlphaNum.length >= 7 && (aPhone.endsWith(qAlphaNum) || qAlphaNum.endsWith(aPhone))) return true;
+
+    return false;
   });
 
   return {

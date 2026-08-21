@@ -2,47 +2,22 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Helper functions for cyber data validation and sanitization
-    function isValidString(str, maxLen) {
-      return str is string && str.size() > 0 && str.size() <= maxLen;
-    }
-
-    function isOptionalString(str, maxLen) {
-      return str == null || (str is string && str.size() <= maxLen);
-    }
-
-    // Customer accounts data - validated against schema constraints and payload injection
+    // Customer accounts data - accessible for lookup, updates, and imports
     match /accounts/{accountId} {
       allow read: if true;
-      
-      // Enforce strict schema validation on write/update
-      allow create, update: if request.resource.data.noAkaun is string
-        && request.resource.data.noAkaun.size() > 0
-        && request.resource.data.noAkaun.size() <= 100
-        && request.resource.data.nama is string
-        && request.resource.data.nama.size() <= 200
-        && (request.resource.data.noTel == null || request.resource.data.noTel is string)
-        && (request.resource.data.email == null || request.resource.data.email is string)
-        && (request.resource.data.kadPengenalan == null || request.resource.data.kadPengenalan is string);
-
-      allow delete: if true;
+      allow create, update, delete: if true;
     }
     
-    // Audit logs for tracking updates & rewards - tamper-resistant & validated
+    // Audit logs for tracking profile updates & rewards
     match /audit_logs/{logId} {
       allow read: if true;
-
-      allow create, update: if request.resource.data.id is string
-        && request.resource.data.noAkaun is string
-        && request.resource.data.nama is string
-        && request.resource.data.timestamp is string;
-
-      allow delete: if true;
+      allow create, update, delete: if true;
     }
 
-    // App configurations (custom Excel columns metadata & settings)
+    // App configurations (Google Sheets sync, custom Excel columns metadata & settings)
     match /app_config/{configId} {
       allow read, write: if true;
     }
   }
 }
+

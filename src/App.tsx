@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   ActiveTab, 
   DeviceFrame, 
@@ -36,7 +36,9 @@ import {
   batchSaveAccountsToFirestore, 
   clearAllAccountsInFirestore,
   clearAllAuditLogsInFirestore,
-  isFirestoreQuotaExceeded
+  isFirestoreQuotaExceeded,
+  subscribeToGoogleSheetsConfig,
+  fetchGoogleSheetsConfigFromFirestore
 } from './services/firebaseService';
 import { 
   saveAccountsToIDB, 
@@ -47,6 +49,7 @@ import {
 } from './utils/idbStorage';
 import { 
   getStoredGoogleSheetsConfig, 
+  saveGoogleSheetsConfig,
   updateSingleCustomerInGoogleSheet, 
   addGoogleSyncLog,
   fetchLiveAccountsFromGoogleSheets 
@@ -157,10 +160,14 @@ export default function App() {
     return [];
   });
 
+  // IndexedDB ready flag to prevent premature sync overwriting on initial render
+  const isIDBReadyRef = useRef(false);
+
   // ⚡ Live Firestore Real-Time Subscriptions & Cross-Device Cloud Data Synchronization
   useEffect(() => {
     // 1. Attempt to load from high-capacity IndexedDB on startup
     loadAccountsFromIDB().then((cachedAccounts) => {
+      isIDBReadyRef.current = true;
       if (cachedAccounts && cachedAccounts.length > 0) {
         setAccounts((prev) => {
           if (cachedAccounts.length >= prev.length || prev === initialCustomerAccounts) {
@@ -169,7 +176,9 @@ export default function App() {
           return prev;
         });
       }
-    }).catch(() => {});
+    }).catch(() => {
+      isIDBReadyRef.current = true;
+    });
 
     loadAuditLogsFromIDB().then((cachedLogs) => {
       if (cachedLogs && cachedLogs.length > 0) {
@@ -195,6 +204,14 @@ export default function App() {
       if (cloudLogs && cloudLogs.length > 0) {
         setAuditLogs(cloudLogs);
         saveAuditLogsToIDB(cloudLogs).catch(() => {});
+      }
+    }).catch(() => {});
+
+    // 2b. Direct fetch Google Sheets Config from Cloud Firestore
+    fetchGoogleSheetsConfigFromFirestore().then((cloudConfig) => {
+      if (cloudConfig && cloudConfig.isConnected && cloudConfig.spreadsheetId) {
+        setGsConfig(cloudConfig);
+        saveGoogleSheetsConfig(cloudConfig, true);
       }
     }).catch(() => {});
 
@@ -228,14 +245,28 @@ export default function App() {
       }
     );
 
+    const unsubscribeGsConfig = subscribeToGoogleSheetsConfig(
+      (cloudConfig) => {
+        if (cloudConfig) {
+          setGsConfig(cloudConfig);
+          saveGoogleSheetsConfig(cloudConfig, true);
+        }
+      },
+      (err) => {
+        // Handled silently
+      }
+    );
+
     return () => {
       unsubscribeAccounts();
       unsubscribeLogs();
+      unsubscribeGsConfig();
     };
   }, []);
 
   // Sync to IndexedDB & LocalStorage as instant local cache (safe bounded for huge datasets)
   useEffect(() => {
+    if (!isIDBReadyRef.current) return;
     saveAccountsToIDB(accounts).catch(() => {});
     try {
       if (accounts.length <= 2500) {
@@ -477,6 +508,8 @@ export default function App() {
 
   // Handle Batch Excel Import with merge or replace modes (Memelihara 100% semua baris & membenarkan No. Akaun berulang)
   const handleImportAccountsWithMode = (imported: CustomerAccount[], mode: 'merge' | 'replace' = 'merge') => {
+    isIDBReadyRef.current = true;
+
     // ⚡ Real-Time Cloud Batch Save to Firestore
     batchSaveAccountsToFirestore(imported, mode).catch((err) => {
       console.warn('Firestore batch import warning:', err);
@@ -484,6 +517,7 @@ export default function App() {
 
     if (mode === 'replace') {
       setAccounts(imported);
+      saveAccountsToIDB(imported).catch(() => {});
     } else {
       setAccounts((prev) => {
         // In merge mode, preserve all incoming rows; if an exact unique id matches, update, otherwise append
@@ -501,7 +535,9 @@ export default function App() {
           }
         });
 
-        return [...Array.from(idMap.values()), ...newItems];
+        const combined = [...Array.from(idMap.values()), ...newItems];
+        saveAccountsToIDB(combined).catch(() => {});
+        return combined;
       });
     }
   };

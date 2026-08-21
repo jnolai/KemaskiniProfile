@@ -35,6 +35,7 @@ import { generateProfileSummaryPDF } from '../utils/pdfReceiptHelper';
 import { useToast } from '../context/ToastContext';
 import { searchAccountInGoogleSheetLive, getStoredGoogleSheetsConfig } from '../services/googleSheetsService';
 import { fetchSingleAccountFromFirestore } from '../services/firebaseService';
+import { getSingleAccountFromIDB } from '../utils/idbStorage';
 import { 
   buildAccountSearchIndex, 
   fastLookupByAccountNo 
@@ -251,7 +252,28 @@ export const CustomerPortalLookup: React.FC<CustomerPortalLookupProps> = ({
       return;
     }
 
-    // 2. Fallback: Query Cloud Firestore directly in real-time
+    // 2. High-speed Fallback: Query IndexedDB Storage Directly
+    try {
+      const idbAccount = await getSingleAccountFromIDB(q);
+      if (idbAccount) {
+        if (onAddFetchedAccount) {
+          onAddFetchedAccount(idbAccount);
+        }
+        setHasSearched(true);
+        setActiveAccountNo(idbAccount.noAkaun);
+        setSelectedAccount(idbAccount);
+        addRecentSearch(idbAccount.noAkaun);
+        showSuccess(
+          'Akaun Ditemui dari Pangkalan Data!',
+          `Profil bagi No. Akaun ${idbAccount.noAkaun} (${idbAccount.nama}) berjaya ditemui.`
+        );
+        return;
+      }
+    } catch (err) {
+      console.warn('[IDB] Single lookup warning:', err);
+    }
+
+    // 3. Fallback: Query Cloud Firestore directly in real-time
     try {
       const cloudAccount = await fetchSingleAccountFromFirestore(q);
       if (cloudAccount) {
@@ -272,11 +294,12 @@ export const CustomerPortalLookup: React.FC<CustomerPortalLookupProps> = ({
       console.warn('[Firestore] Live single search fallback failed:', err);
     }
 
-    // 3. If not found in cloud, and Google Sheets is connected: Query connected Google Sheet LIVE!
-    if (isSheetActive) {
+    // 4. If not found in cloud, and Google Sheets is connected: Query connected Google Sheet LIVE!
+    const effectiveIsSheetActive = isSheetActive || (gsConfig.isConnected && Boolean(gsConfig.spreadsheetId || gsConfig.appsScriptUrl));
+    if (effectiveIsSheetActive) {
       setIsSearchingLiveGoogleSheet(true);
       try {
-        const liveResult = await searchAccountInGoogleSheetLive(q);
+        const liveResult = await searchAccountInGoogleSheetLive(q, gsConfig);
         if (liveResult.found && liveResult.account) {
           const fetchedAcc = liveResult.account;
           if (onAddFetchedAccount) {
@@ -284,6 +307,7 @@ export const CustomerPortalLookup: React.FC<CustomerPortalLookupProps> = ({
           }
           setHasSearched(true);
           setActiveAccountNo(fetchedAcc.noAkaun);
+          setSelectedAccount(fetchedAcc);
           addRecentSearch(fetchedAcc.noAkaun);
           showSuccess(
             'Akaun Ditemui dari Google Sheets!',

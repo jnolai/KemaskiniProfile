@@ -58,6 +58,8 @@ export interface GoogleSheetsConfig {
   isConnected: boolean;
   authMethod: 'oauth' | 'shared_link' | 'apps_script';
   userEmail?: string;
+  appsScriptUrl?: string; // Optional Google Apps Script Web App URL for universal 2-way sync
+  lastCloudSyncTimestamp?: string;
   fieldMapping?: {
     noAkaun?: string;
     nama?: string;

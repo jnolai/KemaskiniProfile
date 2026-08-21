@@ -68,7 +68,9 @@ export const GoogleSheetsDatabaseView: React.FC<GoogleSheetsDatabaseViewProps> =
   const [config, setConfig] = useState<GoogleSheetsConfig>(getStoredGoogleSheetsConfig);
   const [spreadsheetInput, setSpreadsheetInput] = useState<string>(config.spreadsheetId || config.spreadsheetUrl || '');
   const [sheetNameInput, setSheetNameInput] = useState<string>(config.sheetName || 'Sheet1');
+  const [appsScriptInput, setAppsScriptInput] = useState<string>(config.appsScriptUrl || '');
   const [autoSyncEnabled, setAutoSyncEnabled] = useState<boolean>(config.autoSyncOnUpdate ?? true);
+  const [copiedCode, setCopiedCode] = useState<boolean>(false);
 
   // Authentication & OAuth State
   const [hasOAuthToken, setHasOAuthToken] = useState<boolean>(() => Boolean(getStoredOAuthToken()));
@@ -207,7 +209,8 @@ export const GoogleSheetsDatabaseView: React.FC<GoogleSheetsDatabaseViewProps> =
         spreadsheetUrl: `https://docs.google.com/spreadsheets/d/${cleanId}/edit`,
         autoSyncOnUpdate: autoSyncEnabled,
         isConnected: true,
-        authMethod: hasOAuthToken ? 'oauth' : 'shared_link',
+        authMethod: appsScriptInput.trim() ? 'apps_script' : (hasOAuthToken ? 'oauth' : 'shared_link'),
+        appsScriptUrl: appsScriptInput.trim() || undefined,
         totalSyncedRows: parsed.totalRows,
         lastSyncTime: new Date().toISOString().replace('T', ' ').slice(0, 16),
       };
@@ -690,6 +693,51 @@ export const GoogleSheetsDatabaseView: React.FC<GoogleSheetsDatabaseViewProps> =
                       <RefreshCw className={`w-4 h-4 ${isSyncing ? 'animate-spin' : ''}`} />
                       <span>{config.isConnected ? 'Uji & Sambung Semula' : 'Hubungkan Helaian'}</span>
                     </button>
+                  </div>
+                </div>
+
+                {/* Optional Apps Script Webhook URL */}
+                <div className="pt-2 border-t border-stone-200">
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-xs font-semibold text-stone-800">
+                      Pautan Webhook Google Apps Script <span className="text-stone-400 font-normal">(Pilihan: 2-Way Sync Universal)</span>
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => setActiveSubTab('setup_guide')}
+                      className="text-[11px] text-indigo-700 hover:text-indigo-900 hover:underline flex items-center gap-1 cursor-pointer"
+                    >
+                      <Sparkles className="w-3 h-3 text-amber-500" />
+                      <span>Cara Dapatkan Kod Skrip</span>
+                    </button>
+                  </div>
+                  <div className="relative">
+                    <input
+                      type="text"
+                      value={appsScriptInput}
+                      onChange={(e) => {
+                        setAppsScriptInput(e.target.value);
+                        updateConfigState({ appsScriptUrl: e.target.value.trim() });
+                      }}
+                      placeholder="https://script.google.com/macros/s/AKfycbx.../exec"
+                      className="w-full px-3.5 py-2 bg-stone-50 border border-stone-300 rounded-xl text-xs font-mono text-stone-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-600"
+                    />
+                  </div>
+                  <p className="text-[10px] text-stone-500 mt-1">
+                    Membolehkan peranti pelanggan di <code className="bg-stone-100 px-1 py-0.5 rounded text-stone-800 font-mono">kemaskiniprofile.pages.dev</code> mengemaskini terus ke Google Sheet tanpa meminta log masuk Google.
+                  </p>
+                </div>
+
+                {/* Cloud Sync Status Notice */}
+                <div className="bg-emerald-50/70 border border-emerald-200 rounded-xl p-3 flex items-start gap-2.5 text-xs text-emerald-900">
+                  <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                  <div>
+                    <strong className="block font-serif-heading font-bold text-emerald-950">
+                      ⚡ Sambungan Awan Automatik (Cloud-Synced)
+                    </strong>
+                    <span className="text-[11px] text-emerald-800 leading-relaxed">
+                      Sebaik sahaja helaian Google Sheet ini disambungkan di sini, sambungan ini akan <strong>disegerakkan serta-merta ke Cloud Firestore</strong>. Semua peranti lain dan pelanggan di <em>https://kemaskiniprofile.pages.dev</em> boleh terus menyemak rekod mereka secara langsung!
+                    </span>
                   </div>
                 </div>
 
@@ -1298,6 +1346,46 @@ export const GoogleSheetsDatabaseView: React.FC<GoogleSheetsDatabaseViewProps> =
               <div className="bg-white p-2 rounded border border-stone-200">7. Status Akaun</div>
               <div className="bg-white p-2 rounded border border-stone-200">8. Status Kemaskini</div>
             </div>
+          </div>
+
+          {/* Webhook Google Apps Script Snippet (Optional for 100% Free 2-Way Sync on Any Domain) */}
+          <div className="bg-indigo-50/50 border border-indigo-200 rounded-2xl p-5 space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Sparkles className="w-4 h-4 text-indigo-600" />
+                <h5 className="font-serif-heading font-bold text-indigo-950 text-sm">
+                  Kod Google Apps Script (Untuk 2-Way Sync Universal Tanpa Perlu Log Masuk Google)
+                </h5>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  const scriptCode = `// Google Apps Script Web App for Pangkalan Data Pelanggan\nfunction doGet(e) {\n  var sheetName = (e && e.parameter && e.parameter.sheetName) || 'Sheet1';\n  var ss = SpreadsheetApp.getActiveSpreadsheet();\n  var sheet = ss.getSheetByName(sheetName) || ss.getSheets()[0];\n  var data = sheet.getDataRange().getValues();\n  return ContentService.createTextOutput(JSON.stringify(data))\n    .setMimeType(ContentService.MimeType.JSON);\n}\n\nfunction doPost(e) {\n  try {\n    var req = JSON.parse(e.postData.contents);\n    var sheetName = req.sheetName || 'Sheet1';\n    var ss = SpreadsheetApp.getActiveSpreadsheet();\n    var sheet = ss.getSheetByName(sheetName) || ss.getSheets()[0];\n    var data = sheet.getDataRange().getValues();\n    var acc = req.account;\n    \n    var targetRow = -1;\n    for (var i = 1; i < data.length; i++) {\n      if (String(data[i][0]).trim().toLowerCase() === String(acc.noAkaun).trim().toLowerCase()) {\n        targetRow = i + 1;\n        break;\n      }\n    }\n    \n    if (targetRow > 0) {\n      sheet.getRange(targetRow, 4).setValue(acc.noTel);\n      sheet.getRange(targetRow, 5).setValue(acc.email);\n      sheet.getRange(targetRow, 8).setValue('TELAH DIKEMASKINI');\n      sheet.getRange(targetRow, 9).setValue(new Date().toISOString());\n    } else {\n      sheet.appendRow([acc.noAkaun, acc.nama, acc.kadPengenalan || '', acc.noTel || '', acc.email || '', acc.kategoriAkaun || 'Kediaman', acc.status || 'Aktif', 'TELAH DIKEMASKINI', new Date().toISOString(), 'Portal Pelanggan', acc.rewardStatus || 'Belum Layak', acc.rewardCode || '']);\n    }\n    return ContentService.createTextOutput(JSON.stringify({ success: true }))\n      .setMimeType(ContentService.MimeType.JSON);\n  } catch (err) {\n    return ContentService.createTextOutput(JSON.stringify({ success: false, error: err.toString() }))\n      .setMimeType(ContentService.MimeType.JSON);\n  }\n}`;
+                  navigator.clipboard.writeText(scriptCode);
+                  setCopiedCode(true);
+                  showSuccess('Kod Disalin!', 'Kod Apps Script berjaya disalin ke papan keratan.');
+                  setTimeout(() => setCopiedCode(false), 3000);
+                }}
+                className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-xs"
+              >
+                {copiedCode ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                <span>{copiedCode ? 'Disalin!' : 'Salin Kod Skrip'}</span>
+              </button>
+            </div>
+            
+            <p className="text-xs text-indigo-900 leading-relaxed">
+              <strong>Cara Pasang (Hanya 1 Minit):</strong>
+              <br />
+              1. Di Google Sheet anda, klik menu <strong>Extensions &gt; Apps Script</strong>.
+              <br />
+              2. Padam kod asal, klik butang <em>"Salin Kod Skrip"</em> di atas dan tampal kod tersebut ke dalam editor.
+              <br />
+              3. Klik butang <strong>Deploy &gt; New deployment</strong> &gt; Pilih jenis <strong>Web app</strong>.
+              <br />
+              4. Tetapkan <em>"Execute as: Me"</em> dan <em>"Who has access: Anyone"</em>.
+              <br />
+              5. Klik <strong>Deploy</strong>, salin Web App URL dan tampal ke dalam ruangan <em>"Pautan Webhook Google Apps Script"</em> di tab Konfigurasi.
+            </p>
           </div>
         </div>
       )}

@@ -40,6 +40,7 @@ import {
   isStatusColumn,
   ParseProgressInfo
 } from '../utils/excelHelper';
+import { saveCustomColumnsToFirestore, subscribeToCustomColumns } from '../services/firebaseService';
 import confetti from 'canvas-confetti';
 
 interface ExcelImportManagerViewProps {
@@ -95,8 +96,15 @@ export const ExcelImportManagerView: React.FC<ExcelImportManagerViewProps> = ({
   const [currentPage, setCurrentPage] = useState<number>(1);
   const [jumpPageInput, setJumpPageInput] = useState<string>('');
 
-  // Initialize or synchronize activeColumns from existing accounts with rawRowData
+  // Initialize or synchronize activeColumns from existing accounts or Firestore
   useEffect(() => {
+    const unsubscribe = subscribeToCustomColumns((cols) => {
+      if (cols && cols.length > 0) {
+        setActiveColumns(cols);
+        setCustomColumnsUploaded(true);
+      }
+    });
+
     const accWithRaw = accounts.find((a) => a.rawRowData && Object.keys(a.rawRowData).length > 0);
     if (accWithRaw && accWithRaw.rawRowData && !customColumnsUploaded) {
       const keys = Object.keys(accWithRaw.rawRowData);
@@ -105,6 +113,10 @@ export const ExcelImportManagerView: React.FC<ExcelImportManagerViewProps> = ({
         setCustomColumnsUploaded(true);
       }
     }
+
+    return () => {
+      unsubscribe();
+    };
   }, [accounts, customColumnsUploaded]);
 
   // Identify specific functional column keys
@@ -258,6 +270,7 @@ export const ExcelImportManagerView: React.FC<ExcelImportManagerViewProps> = ({
     if (parseResult.detectedColumns && parseResult.detectedColumns.length > 0) {
       setActiveColumns(parseResult.detectedColumns);
       setCustomColumnsUploaded(true);
+      saveCustomColumnsToFirestore(parseResult.detectedColumns).catch(() => {});
     }
 
     try {
