@@ -52,7 +52,10 @@ import {
   saveGoogleSheetsConfig,
   updateSingleCustomerInGoogleSheet, 
   addGoogleSyncLog,
-  fetchLiveAccountsFromGoogleSheets 
+  fetchLiveAccountsFromGoogleSheets,
+  muatTurunDataProfile,
+  simpanKemaskini,
+  CENTRAL_APPS_SCRIPT_API_URL
 } from './services/googleSheetsService';
 
 const STORAGE_ACCOUNTS_KEY = 'customer_portal_accounts_v6';
@@ -209,11 +212,34 @@ export default function App() {
 
     // 2b. Direct fetch Google Sheets Config from Cloud Firestore
     fetchGoogleSheetsConfigFromFirestore().then((cloudConfig) => {
-      if (cloudConfig && cloudConfig.isConnected && cloudConfig.spreadsheetId) {
+      if (cloudConfig && cloudConfig.isConnected && (cloudConfig.spreadsheetId || cloudConfig.appsScriptUrl)) {
         setGsConfig(cloudConfig);
         saveGoogleSheetsConfig(cloudConfig, true);
       }
     }).catch(() => {});
+
+    // 2c. ⚡ FUNGSI MEMBACA DATA (Pangkalan Data Terpusat Google Apps Script)
+    muatTurunDataProfile().then((gsAccounts) => {
+      if (gsAccounts && gsAccounts.length > 0) {
+        console.log("Data rekod dari Google Sheet berjaya dimuat turun:", gsAccounts.length);
+        setAccounts((prev) => {
+          if (prev.length === 0 || prev === initialCustomerAccounts) {
+            return gsAccounts;
+          }
+          const map = new Map<string, CustomerAccount>();
+          gsAccounts.forEach((a) => map.set(a.noAkaun.toLowerCase(), a));
+          prev.forEach((a) => {
+            if (!map.has(a.noAkaun.toLowerCase())) {
+              map.set(a.noAkaun.toLowerCase(), a);
+            }
+          });
+          return Array.from(map.values());
+        });
+        saveAccountsToIDB(gsAccounts).catch(() => {});
+      }
+    }).catch((err) => {
+      console.info('[Google Apps Script] Initial muatTurunDataProfile info:', err);
+    });
 
     // 3. Real-time Firestore snapshot listeners
     const unsubscribeAccounts = subscribeToAccounts(

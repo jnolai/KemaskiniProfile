@@ -45,6 +45,9 @@ import {
   addGoogleSyncLog,
   clearGoogleSyncHistory,
   requestGoogleOAuthToken,
+  muatTurunDataProfile,
+  simpanKemaskini,
+  CENTRAL_APPS_SCRIPT_API_URL,
   STANDARD_SHEET_HEADERS
 } from '../services/googleSheetsService';
 import confetti from 'canvas-confetti';
@@ -242,49 +245,70 @@ export const GoogleSheetsDatabaseView: React.FC<GoogleSheetsDatabaseViewProps> =
 
   // Pull / Fetch latest data from Google Sheets
   const handlePullData = async (mode: 'merge' | 'replace' = 'merge') => {
-    if (!config.spreadsheetId) {
-      showWarning('Tiada Helaian Dihubungkan', 'Sila hubungkan Google Sheet terlebih dahulu.');
-      return;
-    }
-
     setIsSyncing(true);
     try {
-      let rows: any[][] = [];
-      if (hasOAuthToken) {
+      let accountsToSync: CustomerAccount[] = [];
+      let detectedHeaders: string[] = STANDARD_SHEET_HEADERS;
+      let rawRows: any[][] = [];
+
+      // Strategy 1: Centralized Google Apps Script Webhook API (Direct & Fast)
+      const targetApiUrl = config.appsScriptUrl || CENTRAL_APPS_SCRIPT_API_URL;
+      if (targetApiUrl && targetApiUrl.startsWith('http')) {
         try {
-          const apiRes = await fetchGoogleSheetViaAPI(config.spreadsheetId, `${config.sheetName || 'Sheet1'}!A1:Z5000`);
-          rows = apiRes.rows;
-        } catch {
-          rows = await fetchGoogleSheetViaGViz(config.spreadsheetId, config.sheetName || 'Sheet1');
+          const directAccounts = await muatTurunDataProfile(targetApiUrl);
+          if (directAccounts && directAccounts.length > 0) {
+            accountsToSync = directAccounts;
+          }
+        } catch (gasErr) {
+          console.info('Direct Apps Script fetch failed, falling back to Sheets ID:', gasErr);
         }
-      } else {
-        rows = await fetchGoogleSheetViaGViz(config.spreadsheetId, config.sheetName || 'Sheet1');
       }
 
-      const parsed = parseSheetRowsToAccounts(rows);
-      if (parsed.accounts.length === 0) {
-        showWarning('Helaian Kosong', 'Tiada rekod data dijumpai dalam helaian tersebut.');
+      // Strategy 2: Google Sheets API / GViz
+      if (accountsToSync.length === 0 && config.spreadsheetId) {
+        let rows: any[][] = [];
+        if (hasOAuthToken) {
+          try {
+            const apiRes = await fetchGoogleSheetViaAPI(config.spreadsheetId, `${config.sheetName || 'Sheet1'}!A1:Z5000`);
+            rows = apiRes.rows;
+          } catch {
+            rows = await fetchGoogleSheetViaGViz(config.spreadsheetId, config.sheetName || 'Sheet1');
+          }
+        } else {
+          rows = await fetchGoogleSheetViaGViz(config.spreadsheetId, config.sheetName || 'Sheet1');
+        }
+
+        const parsed = parseSheetRowsToAccounts(rows);
+        accountsToSync = parsed.accounts;
+        detectedHeaders = parsed.detectedHeaders;
+        rawRows = rows;
+      }
+
+      if (accountsToSync.length === 0) {
+        showWarning('Tiada Rekod Dijumpai', 'Tiada rekod data dijumpai dalam pangkalan data tersebut.');
         return;
       }
 
       // Import to global accounts
-      onImportAccounts(parsed.accounts, mode);
+      onImportAccounts(accountsToSync, mode);
 
       const now = new Date().toISOString().replace('T', ' ').slice(0, 16);
       updateConfigState({
-        totalSyncedRows: parsed.accounts.length,
+        totalSyncedRows: accountsToSync.length,
         lastSyncTime: now
       });
 
-      setSheetPreviewRows(rows);
-      setPreviewHeaders(parsed.detectedHeaders);
-      setPreviewAccounts(parsed.accounts);
+      if (rawRows.length > 0) {
+        setSheetPreviewRows(rawRows);
+        setPreviewHeaders(detectedHeaders);
+      }
+      setPreviewAccounts(accountsToSync);
 
       showSuccess(
         'Data Google Sheets Berjaya Ditarik! 📥',
-        `Sebanyak ${parsed.accounts.length} rekod akaun pelanggan berjaya diselaraskan ke dalam sistem (${mode === 'replace' ? 'Ganti Penuh' : 'Gabung'}).`
+        `Sebanyak ${accountsToSync.length} rekod akaun pelanggan berjaya diselaraskan ke dalam sistem (${mode === 'replace' ? 'Ganti Penuh' : 'Gabung'}).`
       );
-      addGoogleSyncLog('TARIK_DATA', 'BERJAYA', `Menarik ${parsed.accounts.length} rekod dari Google Sheets.`, parsed.accounts.length);
+      addGoogleSyncLog('TARIK_DATA', 'BERJAYA', `Menarik ${accountsToSync.length} rekod dari Pangkalan Data Google Sheets.`, accountsToSync.length);
       refreshHistory();
 
       try {

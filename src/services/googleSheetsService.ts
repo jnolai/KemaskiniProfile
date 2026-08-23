@@ -16,6 +16,10 @@ const STORAGE_GS_TOKEN = 'customer_portal_gs_oauth_token';
 const STORAGE_GS_TOKEN_EXPIRY = 'customer_portal_gs_oauth_token_expiry';
 const STORAGE_GS_HISTORY = 'customer_portal_gs_sync_history';
 
+// ⚡ CENTRALIZED GOOGLE APPS SCRIPT WEBHOOK API URL (Pangkalan Data Terpusat)
+export const CENTRAL_APPS_SCRIPT_API_URL = "https://script.google.com/macros/s/AKfycbzs_GSYeretmrY3Qfz6kqL436IRWf1FYabR_tsPAUYJNheQ6z-vCuG74GmsoovCuRQhag/exec";
+export const API_URL = CENTRAL_APPS_SCRIPT_API_URL;
+
 // Default standard headers for Google Sheets
 export const STANDARD_SHEET_HEADERS = [
   'No Akaun',
@@ -31,6 +35,329 @@ export const STANDARD_SHEET_HEADERS = [
   'Status Hadiah',
   'Kod Hadiah'
 ];
+
+/**
+ * 1. FUNGSI MEMBACA DATA (Untuk paparan di mana-mana device)
+ * Membaca data rekod pelanggan terus daripada Google Apps Script / Google Sheets
+ */
+export async function muatTurunDataProfile(customApiUrl?: string): Promise<CustomerAccount[]> {
+  const targetUrl = customApiUrl || getStoredGoogleSheetsConfig().appsScriptUrl || CENTRAL_APPS_SCRIPT_API_URL;
+  try {
+    const res = await fetch(targetUrl);
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+    }
+    const data = await res.json();
+    console.log("Data rekod dari Google Sheet:", data);
+
+    if (Array.isArray(data)) {
+      if (data.length === 0) return [];
+
+      // Check if data is a 2D array [ ['No Akaun', 'Nama Pelanggan', ...], ['123', 'Ali', ...] ]
+      if (Array.isArray(data[0])) {
+        const parsed = parseSheetRowsToAccounts(data);
+        return parsed.accounts;
+      }
+
+      // If data is array of objects: [ {"No Akaun": "...", "Nama Pelanggan": "...", ...}, ... ]
+      const accountsList: CustomerAccount[] = [];
+      data.forEach((item: any, idx: number) => {
+        if (!item || typeof item !== 'object') return;
+
+        // No Akaun
+        const noAkaun = String(
+          item['No Akaun'] ||
+          item['noAkaun'] ||
+          item['No_Akaun'] ||
+          item['no_akaun'] ||
+          item['AccountNo'] ||
+          item['accountNo'] ||
+          item['No. Akaun'] ||
+          item['no_account'] ||
+          item['ID'] ||
+          `ACC-${10001 + idx}`
+        ).trim();
+
+        // Nama Pelanggan
+        const nama = String(
+          item['Nama Pelanggan'] ||
+          item['namaPelanggan'] ||
+          item['Nama'] ||
+          item['nama'] ||
+          item['Nama_Pelanggan'] ||
+          item['CustomerName'] ||
+          item['customerName'] ||
+          `Pelanggan ${noAkaun}`
+        ).trim();
+
+        // No Kad Pengenalan / IC
+        const kadPengenalan = String(
+          item['No Kad Pengenalan'] ||
+          item['noIC'] ||
+          item['noIc'] ||
+          item['kadPengenalan'] ||
+          item['IC'] ||
+          item['ic'] ||
+          item['No_Kad_Pengenalan'] ||
+          item['No IC'] ||
+          ''
+        ).trim();
+
+        // No Telefon
+        let noTel = String(
+          item['No Telefon (Kemaskini)'] ||
+          item['No Telefon'] ||
+          item['noTel'] ||
+          item['no_tel'] ||
+          item['telefon'] ||
+          item['phone'] ||
+          item['No_Telefon'] ||
+          ''
+        ).trim().replace(/\.0$/, '');
+
+        // Alamat Email
+        let email = String(
+          item['Alamat Email (Kemaskini)'] ||
+          item['Alamat Email'] ||
+          item['email'] ||
+          item['Email'] ||
+          item['Alamat_Email'] ||
+          item['alamatEmail'] ||
+          ''
+        ).trim();
+
+        // Kategori Akaun
+        const kategoriAkaun = String(
+          item['Kategori Akaun'] ||
+          item['kategoriAkaun'] ||
+          item['Kategori'] ||
+          item['kategori'] ||
+          'Kediaman'
+        ).trim();
+
+        // Status Akaun
+        const rawStatus = String(
+          item['Status Akaun'] ||
+          item['statusAkaun'] ||
+          item['Status'] ||
+          item['status'] ||
+          'Aktif'
+        ).trim();
+
+        let status: CustomerAccount['status'] = 'Aktif';
+        if (/tertunggak|overdue|unpaid/i.test(rawStatus)) status = 'Tertunggak';
+        else if (/selesai|paid|complete/i.test(rawStatus)) status = 'Selesai';
+        else if (/semakan|review|pending/i.test(rawStatus)) status = 'Dalam Semakan';
+
+        // Status Kemaskini
+        const statusKemaskini = String(
+          item['Status Kemaskini'] ||
+          item['statusKemaskini'] ||
+          item['Status_Kemaskini'] ||
+          ''
+        ).toLowerCase();
+
+        const telahDikemaskini = statusKemaskini.includes('telah') ||
+                                statusKemaskini.includes('berjaya') ||
+                                statusKemaskini.includes('dikemaskini') ||
+                                statusKemaskini.includes('true') ||
+                                Boolean(item.telahDikemaskini);
+
+        const lastUpdated = String(
+          item['Tarikh Kemaskini'] ||
+          item['tarikhKemaskini'] ||
+          item['Tarikh Kemaskini Terakhir'] ||
+          item['lastUpdated'] ||
+          item['Timestamp'] ||
+          new Date().toISOString().replace('T', ' ').slice(0, 16)
+        );
+
+        accountsList.push({
+          id: noAkaun,
+          noAkaun,
+          nama,
+          kadPengenalan,
+          noTel,
+          email,
+          kategoriAkaun,
+          status,
+          lastUpdated,
+          telahDikemaskini,
+          rewardStatus: telahDikemaskini ? 'Layak (Belum Dituntut)' : 'Belum Layak',
+          rewardCode: item.rewardCode || item['Kod Hadiah'] || undefined,
+          rawRowData: item
+        });
+      });
+
+      return accountsList;
+    }
+    return [];
+  } catch (err: any) {
+    console.info("[Google Apps Script] Info pembacaan data profile:", err?.message || err);
+    return [];
+  }
+}
+
+/**
+ * 2. FUNGSI HANTAR / KEMASKINI DATA (Semasa user tekan butang Simpan/Hantar)
+ * Menghantar payload kemaskini terus ke Google Apps Script Webhook API (Pangkalan Data Terpusat)
+ */
+export async function simpanKemaskini(
+  account: CustomerAccount,
+  customApiUrl?: string
+): Promise<{ success: boolean; data?: any; error?: string }> {
+  const targetUrl = customApiUrl || getStoredGoogleSheetsConfig().appsScriptUrl || CENTRAL_APPS_SCRIPT_API_URL;
+  if (!targetUrl || !targetUrl.startsWith('http')) {
+    return { success: false, error: 'Tiada URL Webhook Google Apps Script ditetapkan.' };
+  }
+
+  const dataPayload = {
+    noAkaun: account.noAkaun,
+    namaPelanggan: account.nama,
+    noIC: account.kadPengenalan || '',
+    noTel: account.noTel,
+    email: account.email,
+    kategoriAkaun: account.kategoriAkaun || 'Kediaman',
+    statusAkaun: account.status || 'Aktif',
+    statusKemaskini: 'Berjaya Dikemaskini',
+    tarikhKemaskini: account.lastUpdated || new Date().toISOString().replace('T', ' ').slice(0, 16),
+    action: 'update',
+    account: account
+  };
+
+  try {
+    // Note: Use text/plain to avoid CORS OPTIONS preflight rejection in Google Apps Script
+    const res = await fetch(targetUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "text/plain;charset=utf-8",
+      },
+      body: JSON.stringify(dataPayload),
+      redirect: "follow",
+    });
+
+    let resData: any = null;
+    try {
+      resData = await res.json();
+    } catch {
+      resData = { success: res.ok };
+    }
+
+    console.log("Kemaskini Berjaya Disimpan ke Google Apps Script!", resData);
+    return { success: true, data: resData };
+  } catch (err: any) {
+    // Fallback: try mode 'no-cors' to ensure the payload reaches Google Apps Script
+    try {
+      await fetch(targetUrl, {
+        method: "POST",
+        mode: "no-cors",
+        headers: {
+          "Content-Type": "text/plain;charset=utf-8",
+        },
+        body: JSON.stringify(dataPayload)
+      });
+      console.log("Kemaskini Dihantar ke Google Apps Script (mod no-cors)");
+      return { success: true, data: { status: 'sent_no_cors' } };
+    } catch (fallbackErr: any) {
+      console.info("[Google Apps Script] Makluman simpan data:", fallbackErr?.message || fallbackErr);
+      return { success: false, error: fallbackErr?.message || String(fallbackErr) };
+    }
+  }
+}
+
+/**
+ * 3. FUNGSI CARI MAKLUMAT PELANGGAN (Carian Terus BigQuery / Google Apps Script)
+ * Melakukan carian pantas noAkaun melalui query parameter ?noAkaun=...
+ */
+export async function cariMaklumatPelanggan(
+  noAkaun: string,
+  customApiUrl?: string
+): Promise<{
+  status: 'success' | 'empty' | 'error';
+  data?: CustomerAccount;
+  raw?: any;
+  message?: string;
+}> {
+  const inputNoAkaun = String(noAkaun || '').trim();
+  if (!inputNoAkaun) {
+    return { status: 'error', message: 'Sila masukkan No Akaun' };
+  }
+
+  const targetUrl = customApiUrl || getStoredGoogleSheetsConfig().appsScriptUrl || CENTRAL_APPS_SCRIPT_API_URL;
+  console.log("Mencari data dalam BigQuery / Google Apps Script...", inputNoAkaun);
+
+  try {
+    const separator = targetUrl.includes('?') ? '&' : '?';
+    const queryUrl = `${targetUrl}${separator}noAkaun=${encodeURIComponent(inputNoAkaun)}`;
+    const res = await fetch(queryUrl);
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+    }
+
+    const response = await res.json();
+    console.log("Respons carian dari Apps Script/BigQuery:", response);
+
+    if (response.status === 'success' && response.data) {
+      const data = response.data;
+      
+      const parsedNama = String(data["Nama Pelanggan"] || data["namaPelanggan"] || data["Nama"] || `Pelanggan ${inputNoAkaun}`).trim();
+      const parsedIC = String(data["No Kad Pengenalan"] || data["noIC"] || data["No IC"] || '').trim();
+      const parsedPhone = String(data["No Telefon (Kemaskini)"] || data["No Telefon"] || data["noTel"] || '').trim().replace(/\.0$/, '');
+      const parsedEmail = String(data["Alamat Email (Kemaskini)"] || data["Alamat Email"] || data["email"] || '').trim();
+      const parsedKategori = String(data["Kategori Akaun"] || data["kategoriAkaun"] || 'Kediaman').trim();
+      const rawStatus = String(data["Status Akaun"] || data["statusAkaun"] || 'Aktif').trim();
+      const rawStatusKemaskini = String(data["Status Kemaskini"] || data["statusKemaskini"] || '').trim();
+
+      let status: CustomerAccount['status'] = 'Aktif';
+      if (/tertunggak|overdue|unpaid/i.test(rawStatus)) status = 'Tertunggak';
+      else if (/selesai|paid|complete/i.test(rawStatus)) status = 'Selesai';
+      else if (/semakan|review|pending/i.test(rawStatus)) status = 'Dalam Semakan';
+
+      const telahDikemaskini = rawStatusKemaskini.toLowerCase().includes('telah') ||
+                              rawStatusKemaskini.toLowerCase().includes('berjaya') ||
+                              rawStatusKemaskini.toLowerCase().includes('dikemaskini') ||
+                              rawStatusKemaskini.toLowerCase().includes('true');
+
+      const customerAccount: CustomerAccount = {
+        id: inputNoAkaun,
+        noAkaun: inputNoAkaun,
+        nama: parsedNama,
+        kadPengenalan: parsedIC,
+        noTel: parsedPhone,
+        email: parsedEmail,
+        kategoriAkaun: parsedKategori,
+        status: status,
+        lastUpdated: data["Tarikh Kemaskini"] || data["tarikhKemaskini"] || new Date().toISOString().replace('T', ' ').slice(0, 16),
+        telahDikemaskini,
+        rewardStatus: telahDikemaskini ? 'Layak (Belum Dituntut)' : 'Belum Layak',
+        rewardCode: data["Kod Hadiah"] || data["rewardCode"] || undefined,
+        rawRowData: data
+      };
+
+      return {
+        status: 'success',
+        data: customerAccount,
+        raw: data
+      };
+    } else if (response.status === 'empty') {
+      return {
+        status: 'empty',
+        message: 'No Akaun tidak dijumpai dalam rekod.'
+      };
+    } else {
+      return {
+        status: 'error',
+        message: response.message || 'Ralat semasa mencari rekod pelanggan.'
+      };
+    }
+  } catch (err: any) {
+    console.info("[AppsScript/BigQuery] cariMaklumatPelanggan network warning:", err?.message || err);
+    return {
+      status: 'error',
+      message: err?.message || 'Ralat rangkaian.'
+    };
+  }
+}
 
 /**
  * Extract Spreadsheet ID from standard Google Sheets URL or raw ID
@@ -60,7 +387,12 @@ export function getStoredGoogleSheetsConfig(): GoogleSheetsConfig {
   try {
     const raw = localStorage.getItem(STORAGE_GS_CONFIG);
     if (raw) {
-      return JSON.parse(raw);
+      const parsed = JSON.parse(raw);
+      if (!parsed.appsScriptUrl) {
+        parsed.appsScriptUrl = CENTRAL_APPS_SCRIPT_API_URL;
+        parsed.isConnected = true;
+      }
+      return parsed;
     }
   } catch (e) {
     console.error('Error reading Google Sheets config:', e);
@@ -68,12 +400,13 @@ export function getStoredGoogleSheetsConfig(): GoogleSheetsConfig {
   
   return {
     spreadsheetId: '',
-    spreadsheetName: 'Pangkalan Data Pelanggan',
+    spreadsheetName: 'Pangkalan Data Terpusat Google Sheets',
     sheetName: 'Sheet1',
     spreadsheetUrl: '',
+    appsScriptUrl: CENTRAL_APPS_SCRIPT_API_URL,
     autoSyncOnUpdate: true,
-    isConnected: false,
-    authMethod: 'oauth',
+    isConnected: true,
+    authMethod: 'shared_link',
   };
 }
 
@@ -712,7 +1045,7 @@ export async function listUserGoogleSheets(token?: string): Promise<GoogleDriveS
 }
 
 /**
- * Update single customer record directly in Google Sheet
+ * Update single customer record directly in Google Sheet / Centralized Apps Script Database
  */
 export async function updateSingleCustomerInGoogleSheet(
   spreadsheetId: string,
@@ -722,32 +1055,21 @@ export async function updateSingleCustomerInGoogleSheet(
   customConfig?: GoogleSheetsConfig
 ): Promise<boolean> {
   const config = customConfig || getStoredGoogleSheetsConfig();
-  const cleanId = extractSpreadsheetId(spreadsheetId || config.spreadsheetId);
+  const targetApiUrl = config.appsScriptUrl || CENTRAL_APPS_SCRIPT_API_URL;
 
-  // Strategy 1: If Google Apps Script Webhook URL is configured, use it for direct 2-way sync from ANY device/domain!
-  if (config.appsScriptUrl && config.appsScriptUrl.startsWith('http')) {
+  // Strategy 1: Centralized Google Apps Script Webhook API (Fast, Direct, CORS-friendly on ALL devices)
+  if (targetApiUrl && targetApiUrl.startsWith('http')) {
     try {
-      const resp = await fetch(config.appsScriptUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        mode: 'cors',
-        body: JSON.stringify({
-          action: 'update',
-          spreadsheetId: cleanId,
-          sheetName: sheetName || config.sheetName || 'Sheet1',
-          account: updatedAccount
-        })
-      });
-      if (resp.ok) {
+      const res = await simpanKemaskini(updatedAccount, targetApiUrl);
+      if (res.success) {
         return true;
       }
-    } catch (webhookErr) {
-      console.warn('Apps Script webhook update attempt failed:', webhookErr);
+    } catch (gasErr) {
+      console.warn('Google Apps Script central update attempt failed, trying direct Sheets API fallback:', gasErr);
     }
   }
 
+  const cleanId = extractSpreadsheetId(spreadsheetId || config.spreadsheetId);
   const authToken = token || getStoredOAuthToken();
   if (!cleanId || !authToken) return false;
 
@@ -848,7 +1170,7 @@ export async function updateSingleCustomerInGoogleSheet(
 }
 
 /**
- * Fetch live customer accounts directly from connected Google Sheet
+ * Fetch live customer accounts directly from connected Centralized Google Apps Script / Google Sheet
  */
 export async function fetchLiveAccountsFromGoogleSheets(customConfig?: GoogleSheetsConfig): Promise<{
   success: boolean;
@@ -858,14 +1180,24 @@ export async function fetchLiveAccountsFromGoogleSheets(customConfig?: GoogleShe
   error?: string;
 }> {
   const config = customConfig || getStoredGoogleSheetsConfig();
-  if (!config.isConnected || (!config.spreadsheetId && !config.appsScriptUrl)) {
-    return { 
-      success: false, 
-      accounts: [], 
-      totalRows: 0, 
-      sheetTitle: '', 
-      error: 'Pangkalan data Google Sheets belum disambungkan.' 
-    };
+  const targetApiUrl = config.appsScriptUrl || CENTRAL_APPS_SCRIPT_API_URL;
+  const title = config.spreadsheetName || 'Pangkalan Data Terpusat Google Sheets';
+
+  // Strategy 1: Centralized Google Apps Script Webhook API
+  if (targetApiUrl && targetApiUrl.startsWith('http')) {
+    try {
+      const liveAccounts = await muatTurunDataProfile(targetApiUrl);
+      if (liveAccounts && liveAccounts.length > 0) {
+        return {
+          success: true,
+          accounts: liveAccounts,
+          totalRows: liveAccounts.length,
+          sheetTitle: title
+        };
+      }
+    } catch (gasErr) {
+      console.info('[AppsScript] muatTurunDataProfile direct fetch error, trying standard fallbacks...', gasErr);
+    }
   }
 
   const cleanId = extractSpreadsheetId(config.spreadsheetId);
@@ -873,40 +1205,12 @@ export async function fetchLiveAccountsFromGoogleSheets(customConfig?: GoogleShe
 
   try {
     let rows: any[][] = [];
-    let title = config.spreadsheetName || 'Pangkalan Data Google Sheets';
-
-    // Strategy 1: Google Apps Script Webhook (Fast & Direct)
-    if (config.appsScriptUrl && config.appsScriptUrl.startsWith('http')) {
-      try {
-        const gasUrl = `${config.appsScriptUrl}${config.appsScriptUrl.includes('?') ? '&' : '?'}action=getAll&spreadsheetId=${encodeURIComponent(cleanId)}&sheetName=${encodeURIComponent(config.sheetName || 'Sheet1')}`;
-        const gasRes = await fetch(gasUrl);
-        if (gasRes.ok) {
-          const gasData = await gasRes.json();
-          if (Array.isArray(gasData) && gasData.length > 0) {
-            // Check if already parsed as accounts or 2D array
-            if (gasData[0] && typeof gasData[0] === 'object' && gasData[0].noAkaun) {
-              return {
-                success: true,
-                accounts: gasData as CustomerAccount[],
-                totalRows: gasData.length,
-                sheetTitle: title
-              };
-            } else if (Array.isArray(gasData[0])) {
-              rows = gasData;
-            }
-          }
-        }
-      } catch (gasErr) {
-        console.info('[AppsScript] Live fetch fallback to GViz/API...', gasErr);
-      }
-    }
 
     // Strategy 2: OAuth API if token available
     if (rows.length === 0 && token && cleanId) {
       try {
         const res = await fetchGoogleSheetViaAPI(cleanId, `${config.sheetName || 'Sheet1'}!A1:Z5000`, token);
         rows = res.rows;
-        if (res.title) title = res.title;
       } catch (apiErr) {
         console.warn('Google Sheets API token expired/failed, trying GViz fallback:', apiErr);
       }
@@ -917,12 +1221,22 @@ export async function fetchLiveAccountsFromGoogleSheets(customConfig?: GoogleShe
       rows = await fetchGoogleSheetViaGViz(cleanId, config.sheetName || 'Sheet1');
     }
 
-    const parsed = parseSheetRowsToAccounts(rows);
+    if (rows.length > 0) {
+      const parsed = parseSheetRowsToAccounts(rows);
+      return {
+        success: true,
+        accounts: parsed.accounts,
+        totalRows: parsed.totalRows,
+        sheetTitle: title
+      };
+    }
+
     return {
-      success: true,
-      accounts: parsed.accounts,
-      totalRows: parsed.totalRows,
-      sheetTitle: title
+      success: false,
+      accounts: [],
+      totalRows: 0,
+      sheetTitle: title,
+      error: 'Tiada rekod data dijumpai daripada pangkalan data.'
     };
   } catch (err: any) {
     console.error('Error fetching live Google Sheet accounts:', err);
@@ -930,7 +1244,7 @@ export async function fetchLiveAccountsFromGoogleSheets(customConfig?: GoogleShe
       success: false,
       accounts: [],
       totalRows: 0,
-      sheetTitle: config.spreadsheetName || 'Google Sheets',
+      sheetTitle: title,
       error: err.message || 'Gagal membaca data dari Google Sheets.'
     };
   }
@@ -949,6 +1263,27 @@ export async function searchAccountInGoogleSheetLive(
   sheetTitle: string;
   error?: string;
 }> {
+  const config = customConfig || getStoredGoogleSheetsConfig();
+  const targetApiUrl = config.appsScriptUrl || CENTRAL_APPS_SCRIPT_API_URL;
+  const title = config.spreadsheetName || 'Pangkalan Data Terpusat';
+
+  // Strategy 1: Query direct BigQuery/AppsScript endpoint for this account
+  if (targetApiUrl && targetApiUrl.startsWith('http')) {
+    try {
+      const res = await cariMaklumatPelanggan(accountNoQuery, targetApiUrl);
+      if (res.status === 'success' && res.data) {
+        return {
+          found: true,
+          account: res.data,
+          allAccounts: [res.data],
+          sheetTitle: title
+        };
+      }
+    } catch (gasErr) {
+      console.info('[AppsScript] Direct searchAccountInGoogleSheetLive lookup failed, trying full table search:', gasErr);
+    }
+  }
+
   const result = await fetchLiveAccountsFromGoogleSheets(customConfig);
   if (!result.success || !result.accounts.length) {
     return { 

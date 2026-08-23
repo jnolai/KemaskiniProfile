@@ -33,7 +33,13 @@ import {
 import { CustomerAccount } from '../types';
 import { generateProfileSummaryPDF } from '../utils/pdfReceiptHelper';
 import { useToast } from '../context/ToastContext';
-import { searchAccountInGoogleSheetLive, getStoredGoogleSheetsConfig } from '../services/googleSheetsService';
+import { 
+  searchAccountInGoogleSheetLive, 
+  getStoredGoogleSheetsConfig,
+  simpanKemaskini,
+  cariMaklumatPelanggan,
+  CENTRAL_APPS_SCRIPT_API_URL 
+} from '../services/googleSheetsService';
 import { fetchSingleAccountFromFirestore } from '../services/firebaseService';
 import { getSingleAccountFromIDB } from '../utils/idbStorage';
 import { 
@@ -252,7 +258,36 @@ export const CustomerPortalLookup: React.FC<CustomerPortalLookupProps> = ({
       return;
     }
 
-    // 2. High-speed Fallback: Query IndexedDB Storage Directly
+    // 2. Direct Query: Live Search via BigQuery / Google Apps Script API Endpoint
+    setIsSearchingLiveGoogleSheet(true);
+    try {
+      const liveLookup = await cariMaklumatPelanggan(q, gsConfig.appsScriptUrl || CENTRAL_APPS_SCRIPT_API_URL);
+      if (liveLookup.status === 'success' && liveLookup.data) {
+        const fetchedAcc = liveLookup.data;
+        if (onAddFetchedAccount) {
+          onAddFetchedAccount(fetchedAcc);
+        }
+        setHasSearched(true);
+        setActiveAccountNo(fetchedAcc.noAkaun);
+        setSelectedAccount(fetchedAcc);
+        setEditPhone(fetchedAcc.noTel || '');
+        setEditEmail(fetchedAcc.email || '');
+        addRecentSearch(fetchedAcc.noAkaun);
+        showSuccess(
+          'Maklumat Pelanggan Ditemui!',
+          `Profil bagi No. Akaun ${fetchedAcc.noAkaun} (${fetchedAcc.nama}) berjaya dimuatkan.`
+        );
+        return;
+      } else if (liveLookup.status === 'empty') {
+        console.log("No Akaun tidak dijumpai dalam rekod BigQuery/AppsScript.");
+      }
+    } catch (apiErr) {
+      console.warn("Ralat carian endpoint:", apiErr);
+    } finally {
+      setIsSearchingLiveGoogleSheet(false);
+    }
+
+    // 3. High-speed Fallback: Query IndexedDB Storage Directly
     try {
       const idbAccount = await getSingleAccountFromIDB(q);
       if (idbAccount) {
@@ -420,6 +455,23 @@ export const CustomerPortalLookup: React.FC<CustomerPortalLookupProps> = ({
         kemaskiniOleh: 'Pelanggan (Portal)',
       };
 
+      // ⚡ Direct Save to Centralized Google Apps Script Database API
+      try {
+        const gsConf = getStoredGoogleSheetsConfig();
+        const apiUrl = gsConf.appsScriptUrl || CENTRAL_APPS_SCRIPT_API_URL;
+        if (apiUrl) {
+          simpanKemaskini(updated, apiUrl).then((res) => {
+            if (res.success) {
+              console.log('[Centralized DB] Successfully synced customer update to Google Sheet via Apps Script:', res);
+            }
+          }).catch((err) => {
+            console.warn('[Centralized DB] Apps Script sync warning:', err);
+          });
+        }
+      } catch (e) {
+        console.warn('Centralized DB sync error:', e);
+      }
+
       onUpdateAccount(updated, changedFields, activeAccount.noTel, activeAccount.email);
       setIsSaving(false);
       setSavedSuccess(true);
@@ -576,7 +628,7 @@ export const CustomerPortalLookup: React.FC<CustomerPortalLookupProps> = ({
               <Search className="w-4 h-4 text-stone-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
               <input
                 ref={inputRef}
-                id="customer-portal-search-input"
+                id="inputNoAkaun"
                 type="text"
                 autoComplete="off"
                 disabled={searchLockoutSeconds > 0}
@@ -845,7 +897,7 @@ export const CustomerPortalLookup: React.FC<CustomerPortalLookupProps> = ({
                   <span className="bg-white text-stone-950 text-xs font-bold font-mono px-2.5 py-0.5 rounded shadow-2xs">
                     {activeAccount.noAkaun}
                   </span>
-                  <span className="text-xs text-stone-300 font-mono">
+                  <span id="kategoriAkaun" className="text-xs text-stone-300 font-mono">
                     {activeAccount.kategoriAkaun || 'Akaun Pelanggan'}
                   </span>
                 </div>
@@ -856,7 +908,7 @@ export const CustomerPortalLookup: React.FC<CustomerPortalLookupProps> = ({
 
               <div className="text-left sm:text-right">
                 <span className="text-[10px] uppercase text-stone-400 block font-mono">Status Akaun</span>
-                <span className="text-xs font-mono font-bold bg-white/10 text-stone-200 border border-white/20 px-3 py-1 rounded inline-block mt-0.5">
+                <span id="statusAkaun" className="text-xs font-mono font-bold bg-white/10 text-stone-200 border border-white/20 px-3 py-1 rounded inline-block mt-0.5">
                   {activeAccount.status}
                 </span>
               </div>
@@ -882,7 +934,7 @@ export const CustomerPortalLookup: React.FC<CustomerPortalLookupProps> = ({
                     </div>
                   </div>
                   <div className="flex items-center gap-2 self-start sm:self-center shrink-0">
-                    <span className="px-3 py-1 rounded-full bg-emerald-100 text-emerald-900 border border-emerald-300 text-[11px] font-mono font-bold whitespace-nowrap">
+                    <span id="statusKemaskini" className="px-3 py-1 rounded-full bg-emerald-100 text-emerald-900 border border-emerald-300 text-[11px] font-mono font-bold whitespace-nowrap">
                       ✨ Status: Dikemaskini
                     </span>
                     <button
@@ -940,7 +992,7 @@ export const CustomerPortalLookup: React.FC<CustomerPortalLookupProps> = ({
                         <span>{revealFullIC ? 'Sembunyi' : 'Papar Penuh'}</span>
                       </button>
                     </div>
-                    <div className="p-3 bg-white border border-stone-300 rounded-xl font-mono font-medium text-stone-900 shadow-2xs flex items-center justify-between">
+                    <div id="noIC" className="p-3 bg-white border border-stone-300 rounded-xl font-mono font-medium text-stone-900 shadow-2xs flex items-center justify-between">
                       <div className="flex items-center gap-2">
                         <CreditCard className="w-3.5 h-3.5 text-stone-400" />
                         <span>
@@ -958,7 +1010,7 @@ export const CustomerPortalLookup: React.FC<CustomerPortalLookupProps> = ({
                   {/* Nama Penuh */}
                   <div className="sm:col-span-2">
                     <span className="text-stone-500 font-mono text-[10px] block mb-1 font-semibold">NAMA PENUH PEMILIK AKAUN</span>
-                    <div className="p-3 bg-white border border-stone-300 rounded-xl font-serif-heading font-bold text-stone-950 shadow-2xs flex items-center justify-between">
+                    <div id="namaPelanggan" className="p-3 bg-white border border-stone-300 rounded-xl font-serif-heading font-bold text-stone-950 shadow-2xs flex items-center justify-between">
                       <div className="flex items-center gap-2">
                         <User className="w-3.5 h-3.5 text-stone-400" />
                         <span>{activeAccount.nama}</span>
@@ -1024,14 +1076,14 @@ export const CustomerPortalLookup: React.FC<CustomerPortalLookupProps> = ({
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
                   {/* 1. Nombor Telefon */}
                   <div>
-                    <label htmlFor="edit-phone-input" className="font-bold text-stone-900 block mb-1.5 flex items-center justify-between">
+                    <label htmlFor="noTel" className="font-bold text-stone-900 block mb-1.5 flex items-center justify-between">
                       <span>Nombor Telefon <span className="text-rose-600">*</span></span>
                       <span className="text-[10px] font-normal text-stone-500 font-mono">cth: 012-3456789</span>
                     </label>
                     <div className="relative">
                       <Phone className="w-4 h-4 text-stone-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
                       <input
-                        id="edit-phone-input"
+                        id="noTel"
                         type="tel"
                         required
                         value={editPhone}
@@ -1044,14 +1096,14 @@ export const CustomerPortalLookup: React.FC<CustomerPortalLookupProps> = ({
 
                   {/* 2. Alamat Email */}
                   <div>
-                    <label htmlFor="edit-email-input" className="font-bold text-stone-900 block mb-1.5 flex items-center justify-between">
+                    <label htmlFor="email" className="font-bold text-stone-900 block mb-1.5 flex items-center justify-between">
                       <span>Alamat Email <span className="text-rose-600">*</span></span>
                       <span className="text-[10px] font-normal text-stone-500 font-mono">cth: nama@gmail.com</span>
                     </label>
                     <div className="relative">
                       <Mail className="w-4 h-4 text-stone-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
                       <input
-                        id="edit-email-input"
+                        id="email"
                         type="email"
                         required
                         value={editEmail}
