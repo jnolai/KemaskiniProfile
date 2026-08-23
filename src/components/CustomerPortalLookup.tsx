@@ -38,6 +38,7 @@ import {
   getStoredGoogleSheetsConfig,
   simpanKemaskini,
   cariMaklumatPelanggan,
+  getFlexibleValue,
   CENTRAL_APPS_SCRIPT_API_URL 
 } from '../services/googleSheetsService';
 import { fetchSingleAccountFromFirestore } from '../services/firebaseService';
@@ -71,6 +72,7 @@ interface CustomerPortalLookupProps {
   googleSheetUrl?: string;
   onSyncFromGoogleSheets?: () => Promise<CustomerAccount[]>;
   onAddFetchedAccount?: (account: CustomerAccount) => void;
+  isSuperAdmin?: boolean;
 }
 
 export const CustomerPortalLookup: React.FC<CustomerPortalLookupProps> = ({
@@ -83,6 +85,7 @@ export const CustomerPortalLookup: React.FC<CustomerPortalLookupProps> = ({
   googleSheetUrl = '',
   onSyncFromGoogleSheets,
   onAddFetchedAccount,
+  isSuperAdmin = false,
 }) => {
   const { showSuccess, showError, showWarning, showInfo } = useToast();
 
@@ -321,7 +324,7 @@ export const CustomerPortalLookup: React.FC<CustomerPortalLookupProps> = ({
         addRecentSearch(cloudAccount.noAkaun);
         showSuccess(
           'Akaun Ditemui dari Pangkalan Data Awan!',
-          `Profil bagi No. Akaun ${cloudAccount.noAkaun} (${cloudAccount.nama}) berjaya dimuatkan daripada Cloud Firestore.`
+          `Profil bagi No. Akaun ${cloudAccount.noAkaun} (${cloudAccount.nama}) berjaya dimuatkan daripada pangkalan data awan.`
         );
         return;
       }
@@ -855,7 +858,22 @@ export const CustomerPortalLookup: React.FC<CustomerPortalLookupProps> = ({
       )}
 
       {/* STATE D: Active Account Selected - Display Profile & Edit Form */}
-      {activeAccount && (
+      {activeAccount && (() => {
+        const displayNama = (activeAccount.nama && !activeAccount.nama.startsWith('Pelanggan ') && activeAccount.nama.trim() !== '')
+          ? activeAccount.nama
+          : (getFlexibleValue(activeAccount.rawRowData, [
+              'Nama Pelanggan', 'nama_pelanggan', 'namaPelanggan', 'NAMA_PELANGGAN', 'NAMA PELANGGAN',
+              'Nama', 'nama', 'NAMA',
+              'Customer Name', 'customer_name', 'customerName', 'CUSTOMER_NAME',
+              'Full Name', 'full_name', 'fullName', 'FULL_NAME',
+              'Nama Penuh', 'nama_penuh', 'namaPenuh', 'NAMA_PENUH',
+              'Nama Pemilik', 'nama_pemilik', 'namaPemilik', 'NAMA_PEMILIK',
+              'Pelanggan', 'pelanggan', 'PELANGGAN',
+              'Name', 'name', 'NAME',
+              /nama/i, /name/i, /pelanggan/i, /pemilik/i, /customer/i
+            ]) || activeAccount.nama || 'Tiada Rekod Nama');
+
+        return (
         <div className="space-y-4">
           
           {/* Navigation Bar when viewing account */}
@@ -902,7 +920,7 @@ export const CustomerPortalLookup: React.FC<CustomerPortalLookupProps> = ({
                   </span>
                 </div>
                 <h2 className="text-lg sm:text-2xl font-serif-heading font-bold text-white">
-                  {activeAccount.nama}
+                  {displayNama}
                 </h2>
               </div>
 
@@ -1013,7 +1031,7 @@ export const CustomerPortalLookup: React.FC<CustomerPortalLookupProps> = ({
                     <div id="namaPelanggan" className="p-3 bg-white border border-stone-300 rounded-xl font-serif-heading font-bold text-stone-950 shadow-2xs flex items-center justify-between">
                       <div className="flex items-center gap-2">
                         <User className="w-3.5 h-3.5 text-stone-400" />
-                        <span>{activeAccount.nama}</span>
+                        <span>{displayNama}</span>
                       </div>
                       <Lock className="w-3.5 h-3.5 text-stone-400" />
                     </div>
@@ -1265,11 +1283,13 @@ export const CustomerPortalLookup: React.FC<CustomerPortalLookupProps> = ({
             </form>
           </div>
         </div>
-      )}
+        );
+      })()}
       {/* 🛡️ Cyber Security & PDPA Center Modal */}
       <CyberSecurityShieldModal 
         isOpen={isSecurityModalOpen} 
-        onClose={() => setIsSecurityModalOpen(false)} 
+        onClose={() => setIsSecurityModalOpen(false)}
+        isSuperAdmin={isSuperAdmin}
       />
     </div>
   );

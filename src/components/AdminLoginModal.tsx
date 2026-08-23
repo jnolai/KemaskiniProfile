@@ -24,14 +24,19 @@ import {
 import { motion } from 'motion/react';
 import { useToast } from '../context/ToastContext';
 import { ActiveTab, AdminRole } from '../types';
-import { securityRateLimiter, logSecurityIncident, sanitizeInput } from '../utils/security';
+import { 
+  securityRateLimiter, 
+  logSecurityIncident, 
+  sanitizeInput,
+  verifyAdminCredentials 
+} from '../utils/security';
 
 interface AdminLoginModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSuccess: (role: AdminRole) => void;
-  currentAdminPassword: string;
-  currentSuperAdminPassword: string;
+  currentAdminPassword?: string;
+  currentSuperAdminPassword?: string;
   targetTabName?: string;
   targetTabKey?: ActiveTab;
   isAlreadyAdmin?: boolean;
@@ -46,8 +51,6 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
   isOpen,
   onClose,
   onSuccess,
-  currentAdminPassword,
-  currentSuperAdminPassword,
   targetTabName,
   targetTabKey,
   isAlreadyAdmin = false,
@@ -64,7 +67,7 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
   const [rememberMe, setRememberMe] = useState(true);
   const [lockoutSeconds, setLockoutSeconds] = useState(0);
 
-  const isSuperAdminRequiredTab = targetTabKey === 'import_excel' || targetTabKey === 'google_sheets';
+  const isSuperAdminRequiredTab = targetTabKey === 'import_excel';
   const isElevationMode = isAlreadyAdmin && !isAlreadySuperAdmin && isSuperAdminRequiredTab;
 
   // Lockout countdown timer
@@ -95,7 +98,7 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
     }
 
     // Rate Limiter: Max 5 failed attempts per 60 seconds, 60s lockout
-    const rateCheck = securityRateLimiter.checkRateLimit('admin_auth_attempt', 6, 60000, 60000);
+    const rateCheck = securityRateLimiter.checkRateLimit('admin_auth_attempt', 5, 60000, 60000);
     if (!rateCheck.allowed) {
       setLockoutSeconds(rateCheck.lockoutSeconds);
       const msg = `⚠️ Percubaan log masuk berulang kali dikesan. Sistem mengaktifkan sekatan keselamatan siber selama ${rateCheck.lockoutSeconds} saat.`;
@@ -111,20 +114,21 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
       return;
     }
 
-    // Check if matching Super Admin password
-    if (trimmed === currentSuperAdminPassword) {
+    // Cryptographic Credential Verification via SHA-256 with Salt
+    const authResult = verifyAdminCredentials(trimmed);
+
+    if (authResult.valid && authResult.role === 'super_admin') {
       securityRateLimiter.resetKey('admin_auth_attempt');
       setLoginError('');
       setPasswordInput('');
-      showSuccess('Log Masuk Super Admin Berjaya', 'Akses penuh Super Admin (Import Excel & Google Sheets DB) dibenarkan.');
+      showSuccess('Log Masuk Super Admin Berjaya', 'Akses penuh Super Admin (Carian & Kemaskini Data Pelanggan) disahkan secara selamat.');
       onSuccess('super_admin');
       return;
     }
 
-    // Check if matching regular Admin password
-    if (trimmed === currentAdminPassword) {
+    if (authResult.valid && authResult.role === 'admin') {
       if (isSuperAdminRequiredTab) {
-        const msg = 'Kata laluan Admin sah, tetapi modul ini KHAS untuk Super Admin. Sila gunakan kata laluan Super Admin (superadmin123).';
+        const msg = 'Kata laluan Admin sah, tetapi modul ini memerlukan pengesahan tahap Super Admin.';
         setLoginError(msg);
         showError('Akses Super Admin Diperlukan', msg);
         return;
@@ -148,18 +152,6 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
     const msg = `Kata laluan tidak sah. Baki percubaan selamat: ${rateCheck.remaining}. Sila semak semula.`;
     setLoginError(msg);
     showError('Log Masuk Gagal', msg);
-  };
-
-  const handleFillSuperAdminPassword = () => {
-    setPasswordInput(currentSuperAdminPassword || 'superadmin123');
-    setLoginError('');
-    showInfo('Kata Laluan Super Admin Diisi', 'Kata laluan Super Admin (superadmin123) telah dimasukkan.');
-  };
-
-  const handleFillAdminPassword = () => {
-    setPasswordInput(currentAdminPassword || 'admin123');
-    setLoginError('');
-    showInfo('Kata Laluan Admin Diisi', 'Kata laluan Admin (admin123) telah dimasukkan.');
   };
 
   return (
@@ -199,11 +191,11 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
             {/* Brand / Logo Header */}
             <div className="flex items-center gap-2.5 mb-6">
               <div className="w-9 h-9 rounded-xl bg-stone-900 text-white flex items-center justify-center font-serif-heading font-black text-base shadow-sm border border-stone-800">
-                J
+                e
               </div>
               <div>
                 <span className="font-serif-heading font-bold text-sm tracking-tight text-stone-950 block leading-none">
-                  Jnol.Ai Portal
+                  eKemaskini
                 </span>
                 <span className="text-[10px] text-stone-500 font-mono">
                   Sistem Pengurusan & Keselamatan Data
@@ -234,7 +226,7 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
                 {isAlreadySuperAdmin 
                   ? 'Akses tahap tertinggi aktif dengan kawalan penuh ke semua modul pangkalan data.'
                   : isSuperAdminRequiredTab 
-                  ? 'Modul Import Excel dan Google Sheets DB dihadkan eksklusif kepada Super Admin sahaja.' 
+                  ? 'Modul Carian & Kemaskini Data Pelanggan dihadkan eksklusif kepada Super Admin sahaja.' 
                   : isAlreadyAdmin
                   ? 'Sesi pentadbir biasa anda sedang aktif.'
                   : 'Sila masukkan kata laluan untuk pengesahan akses pentadbir.'}
@@ -270,7 +262,7 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
                     </span>
                   </div>
                   <p className="text-xs text-stone-600 leading-relaxed">
-                    Anda memegang kelayakan Super Admin. Anda mempunyai hak penuh untuk memuat naik Excel, menyelaraskan Google Sheets secara langsung (Live DB), dan mengurus keseluruhan rekod pelanggan.
+                    Anda memegang kelayakan Super Admin. Anda mempunyai hak penuh untuk mengurus, menyunting perhubungan data pelanggan, dan mengosongkan pangkalan data.
                   </p>
                   <div className="pt-1 flex items-center gap-2 text-[11px] text-emerald-800 font-medium">
                     <CheckCircle className="w-3.5 h-3.5 text-emerald-600" />
@@ -425,47 +417,15 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
                   )}
                 </div>
 
-                {/* Quick Helper Chips */}
-                <div className="space-y-2 pt-1">
-                  <div className="text-[11px] text-stone-500 font-mono flex items-center justify-between">
-                    <span>Pilihan Kata Laluan Ujian Lalai:</span>
-                  </div>
-                  
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                    <button
-                      type="button"
-                      onClick={handleFillSuperAdminPassword}
-                      className={`px-3 py-2 rounded-xl text-[11px] font-medium border flex items-center justify-between transition-all cursor-pointer ${
-                        isSuperAdminRequiredTab
-                          ? 'bg-purple-100/80 border-purple-300 text-purple-950 font-bold hover:bg-purple-200'
-                          : 'bg-stone-100 hover:bg-stone-200/80 border-stone-300 text-stone-800'
-                      }`}
-                    >
-                      <span className="flex items-center gap-1.5">
-                        <Crown className="w-3.5 h-3.5 text-purple-600" />
-                        <span>Super Admin</span>
-                      </span>
-                      <span className="font-mono text-[10px] text-stone-500 bg-white/80 px-1.5 py-0.5 rounded border border-stone-300/60">
-                        superadmin123
-                      </span>
-                    </button>
-
-                    {!isSuperAdminRequiredTab && (
-                      <button
-                        type="button"
-                        onClick={handleFillAdminPassword}
-                        className="px-3 py-2 rounded-xl text-[11px] font-medium border bg-stone-100 hover:bg-stone-200/80 border-stone-300 text-stone-800 flex items-center justify-between transition-all cursor-pointer"
-                      >
-                        <span className="flex items-center gap-1.5">
-                          <Shield className="w-3.5 h-3.5 text-stone-600" />
-                          <span>Admin Biasa</span>
-                        </span>
-                        <span className="font-mono text-[10px] text-stone-500 bg-white/80 px-1.5 py-0.5 rounded border border-stone-300/60">
-                          admin123
-                        </span>
-                      </button>
-                    )}
-                  </div>
+                {/* Secure Cryptographic Authentication Notice */}
+                <div className="p-3 bg-stone-100/90 border border-stone-200/90 rounded-xl flex items-center justify-between text-[11px] text-stone-600 font-mono">
+                  <span className="flex items-center gap-1.5 font-medium">
+                    <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
+                    <span>Perlindungan Kriptografi SHA-256</span>
+                  </span>
+                  <span className="text-[10px] text-stone-500 bg-white px-2 py-0.5 rounded border border-stone-200 font-bold">
+                    Anti-Brute Force
+                  </span>
                 </div>
 
                 {/* Submit Action */}
@@ -565,11 +525,11 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
                 <div className="text-[11px] text-stone-300 space-y-0.5">
                   <div className="flex items-center gap-1.5">
                     <FileSpreadsheet className="w-3 h-3 text-purple-400 shrink-0" />
-                    <span><strong>Import & Kemaskini Excel</strong> (Muat naik & timpa)</span>
+                    <span><strong>Carian & Kemaskini Data Pelanggan</strong> (Sunting & Selaras)</span>
                   </div>
                   <div className="flex items-center gap-1.5">
-                    <Database className="w-3 h-3 text-emerald-400 shrink-0" />
-                    <span><strong>Google Sheets DB</strong> (Tarik, Hantar & Live Sync)</span>
+                    <Crown className="w-3 h-3 text-amber-400 shrink-0" />
+                    <span><strong>Kawalan Pangkalan Data</strong> (Kosongkan Data & Urus Pangkalan Data)</span>
                   </div>
                 </div>
               </div>

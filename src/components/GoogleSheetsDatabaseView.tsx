@@ -760,7 +760,7 @@ export const GoogleSheetsDatabaseView: React.FC<GoogleSheetsDatabaseViewProps> =
                       ⚡ Sambungan Awan Automatik (Cloud-Synced)
                     </strong>
                     <span className="text-[11px] text-emerald-800 leading-relaxed">
-                      Sebaik sahaja helaian Google Sheet ini disambungkan di sini, sambungan ini akan <strong>disegerakkan serta-merta ke Cloud Firestore</strong>. Semua peranti lain dan pelanggan di <em>https://kemaskiniprofile.pages.dev</em> boleh terus menyemak rekod mereka secara langsung!
+                      Sebaik sahaja helaian Google Sheet ini disambungkan di sini, sambungan ini akan <strong>disegerakkan serta-merta ke pangkalan data awan</strong>. Semua peranti lain dan pelanggan boleh terus menyemak rekod mereka secara langsung!
                     </span>
                   </div>
                 </div>

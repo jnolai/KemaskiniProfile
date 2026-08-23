@@ -1,8 +1,6 @@
-import React, { useState, useMemo, useRef, useEffect } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { 
   FileSpreadsheet, 
-  UploadCloud, 
-  Download, 
   Search, 
   CheckCircle2, 
   Lock, 
@@ -10,42 +8,34 @@ import {
   Phone, 
   Mail, 
   Save, 
-  AlertCircle, 
   ExternalLink,
-  Table,
   Layers,
   FileText,
-  Zap,
   ChevronLeft,
   ChevronRight,
   ChevronsLeft,
   ChevronsRight,
-  Activity,
   Trash2,
   Crown,
-  Info
+  Users
 } from 'lucide-react';
 import { CustomerAccount } from '../types';
 import { generateProfileSummaryPDF } from '../utils/pdfReceiptHelper';
 import { useToast } from '../context/ToastContext';
 import { 
-  downloadExcelTemplate, 
-  parseAccountsExcel, 
   exportAccountsToExcel,
   isPhoneColumn,
   isEmailColumn,
   isAccountNoColumn,
   isOwnerNameColumn,
   isIcColumn,
-  isStatusColumn,
-  ParseProgressInfo
+  isStatusColumn
 } from '../utils/excelHelper';
-import { saveCustomColumnsToFirestore, subscribeToCustomColumns } from '../services/firebaseService';
-import confetti from 'canvas-confetti';
+import { subscribeToCustomColumns } from '../services/firebaseService';
 
 interface ExcelImportManagerViewProps {
   accounts: CustomerAccount[];
-  onImportAccounts: (imported: CustomerAccount[], mode: 'merge' | 'replace') => void;
+  onImportAccounts?: (imported: CustomerAccount[], mode: 'merge' | 'replace') => void;
   onUpdateAccount: (updated: CustomerAccount, changedFields: string[], oldPhone: string, oldEmail: string) => void;
   onNavigateToLookup?: (noAkaun: string) => void;
   onClearAllAccounts?: () => void;
@@ -65,29 +55,15 @@ const DEFAULT_COLUMNS = [
 
 export const ExcelImportManagerView: React.FC<ExcelImportManagerViewProps> = ({
   accounts,
-  onImportAccounts,
   onUpdateAccount,
   onNavigateToLookup,
   onClearAllAccounts,
   isSuperAdmin = false,
   onRequireSuperAdmin,
 }) => {
-  const { showSuccess, showError, showWarning, showInfo } = useToast();
+  const { showSuccess, showWarning } = useToast();
 
-  // File upload state (Langkah 1)
-  const [dragActive, setDragActive] = useState(false);
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [isParsing, setIsParsing] = useState(false);
-  const [parseProgress, setParseProgress] = useState<ParseProgressInfo | null>(null);
-  const [parseResult, setParseResult] = useState<{
-    accounts: CustomerAccount[];
-    detectedColumns: string[];
-    totalRows: number;
-  } | null>(null);
-  const [importMode, setImportMode] = useState<'merge' | 'replace'>('merge');
-  const [importFeedback, setImportFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
-
-  // Dynamic columns for Langkah 2 (derived from uploaded file in Langkah 1)
+  // Dynamic columns (derived from active accounts or synchronized structure)
   const [activeColumns, setActiveColumns] = useState<string[]>(DEFAULT_COLUMNS);
   const [customColumnsUploaded, setCustomColumnsUploaded] = useState<boolean>(false);
 
@@ -146,164 +122,6 @@ export const ExcelImportManagerView: React.FC<ExcelImportManagerViewProps> = ({
   const [editFormEmail, setEditFormEmail] = useState('');
   const [cellFeedback, setCellFeedback] = useState<string | null>(null);
 
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
-  // Parse Excel File on select in Langkah 1 with Real-Time Progress for 100MB files
-  const handleFileProcess = async (file: File) => {
-    const fileSizeMb = Number((file.size / (1024 * 1024)).toFixed(2));
-    setIsParsing(true);
-    setImportFeedback(null);
-    setSelectedFile(file);
-    setParseProgress({
-      phase: `Memulakan pembacaan fail (${fileSizeMb} MB)...`,
-      percent: 5,
-      processedRows: 0,
-      totalRows: 0,
-      fileSizeMb,
-    });
-
-    try {
-      const result = await parseAccountsExcel(file, (info) => {
-        setParseProgress(info);
-      });
-
-      if (result.accounts.length === 0) {
-        const errorMsg = 'Fail Excel tidak mengandungi data akaun yang sah. Sila pastikan terdapat ruangan No. Akaun dan Nama.';
-        setImportFeedback({
-          type: 'error',
-          message: errorMsg,
-        });
-        showError('Ralat Bacaan Fail Excel', errorMsg);
-        setParseResult(null);
-      } else {
-        setParseResult(result);
-        const successMsg = `⚡ Berjaya memproses fail "${file.name}" (${fileSizeMb} MB). Dijumpai ${result.accounts.length.toLocaleString()} rekod akaun unik dengan ${result.detectedColumns.length} lajur data.`;
-        setImportFeedback({
-          type: 'success',
-          message: successMsg,
-        });
-        showInfo(
-          'Fail 100MB Dikesan & Diproses!', 
-          `Dijumpai ${result.accounts.length.toLocaleString()} rekod dalam fail "${file.name}". Sila klik butang "Sahkan & Selaraskan" untuk menyimpan.`
-        );
-      }
-    } catch {
-      const errorMsg = 'Gagal membaca fail Excel. Sila pastikan format fail adalah .xlsx, .xls atau .csv yang sah.';
-      setImportFeedback({
-        type: 'error',
-        message: errorMsg,
-      });
-      showError('Ralat Format Fail', errorMsg);
-      setParseResult(null);
-    } finally {
-      setIsParsing(false);
-    }
-  };
-
-  const handleDrag = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (e.type === 'dragenter' || e.type === 'dragover') {
-      setDragActive(true);
-    } else if (e.type === 'dragleave') {
-      setDragActive(false);
-    }
-  };
-
-  const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setDragActive(false);
-
-    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-      handleFileProcess(e.dataTransfer.files[0]);
-    }
-  };
-
-  const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      handleFileProcess(e.target.files[0]);
-    }
-  };
-
-  // ⚡ Deduplication Statistics against current database
-  const deduplicationStats = useMemo(() => {
-    if (!parseResult) return null;
-    const existingDbSet = new Set(accounts.map((a) => a.noAkaun.trim().toUpperCase()));
-    let matchingInDb = 0;
-    let newUnique = 0;
-
-    parseResult.accounts.forEach((acc) => {
-      const key = acc.noAkaun.trim().toUpperCase();
-      if (existingDbSet.has(key)) {
-        matchingInDb++;
-      } else {
-        newUnique++;
-      }
-    });
-
-    const duplicateCountInFile = (parseResult as any).duplicateCountInFile || 0;
-    const rawRowCount = (parseResult as any).rawRowCount || parseResult.accounts.length;
-
-    return {
-      totalUnique: parseResult.accounts.length,
-      matchingInDb,
-      newUnique,
-      duplicateCountInFile,
-      rawRowCount,
-    };
-  }, [parseResult, accounts]);
-
-  // Commit Import from Langkah 1 to system and configure Langkah 2 fields
-  const handleApplyImport = () => {
-    if (!parseResult || parseResult.accounts.length === 0) return;
-
-    const count = parseResult.accounts.length;
-    const fileName = selectedFile?.name || 'Excel';
-    const matchCount = deduplicationStats?.matchingInDb || 0;
-    const newCount = deduplicationStats?.newUnique || count;
-
-    // Apply the imported accounts to parent state
-    onImportAccounts(parseResult.accounts, importMode);
-    
-    // Set dynamic columns in Langkah 2 to match the exact fields uploaded in Langkah 1
-    if (parseResult.detectedColumns && parseResult.detectedColumns.length > 0) {
-      setActiveColumns(parseResult.detectedColumns);
-      setCustomColumnsUploaded(true);
-      saveCustomColumnsToFirestore(parseResult.detectedColumns).catch(() => {});
-    }
-
-    try {
-      confetti({
-        particleCount: 50,
-        spread: 70,
-        origin: { y: 0.6 },
-        colors: ['#059669', '#10B981', '#1A1A1A']
-      });
-    } catch {}
-
-    const feedbackMsg = importMode === 'replace'
-      ? `🎉 Berjaya memuat naik ${count.toLocaleString()} rekod akaun (Gantian Keseluruhan). Ruangan pada Langkah 2 diselaraskan.`
-      : `🎉 Berjaya memproses ${count.toLocaleString()} akaun: ${newCount.toLocaleString()} akaun baharu ditambah & ${matchCount.toLocaleString()} akaun sedia ada (No. Akaun sama) dikemaskini.`;
-
-    setImportFeedback({
-      type: 'success',
-      message: feedbackMsg,
-    });
-
-    showSuccess(
-      'Import Data Excel Berjaya!',
-      importMode === 'replace'
-        ? `Sebanyak ${count.toLocaleString()} rekod akaun dari fail "${fileName}" telah menggantikan keseluruhan data.`
-        : `Sebanyak ${count.toLocaleString()} rekod akaun diselaraskan (${newCount.toLocaleString()} baharu, ${matchCount.toLocaleString()} dikemas kini).`
-    );
-
-    // Reset staging state
-    setSelectedFile(null);
-    setParseResult(null);
-    if (fileInputRef.current) fileInputRef.current.value = '';
-  };
-
   // Filtered dataset for searching and updating with O(n) scan without artificial line item limits
   const filteredAccounts = useMemo(() => {
     const q = searchQuery.toLowerCase().trim();
@@ -338,7 +156,7 @@ export const ExcelImportManagerView: React.FC<ExcelImportManagerViewProps> = ({
           acc.email.toLowerCase().includes(q) ||
           (acc.alamatHarta && acc.alamatHarta.toLowerCase().includes(q));
 
-        // Also search across all dynamic rawRowData fields uploaded in Langkah 1
+        // Also search across all dynamic rawRowData fields
         if (!matchSearch && acc.rawRowData) {
           matchSearch = Object.values(acc.rawRowData).some((val) => {
             if (val === null || val === undefined) return false;
@@ -363,7 +181,7 @@ export const ExcelImportManagerView: React.FC<ExcelImportManagerViewProps> = ({
     return { total, updated, original };
   }, [accounts]);
 
-  // Paginated dataset calculation for instant 60fps rendering of 100MB imports
+  // Paginated dataset calculation
   const totalFilteredCount = filteredAccounts.length;
   const totalPages = pageSize === -1 ? 1 : Math.max(1, Math.ceil(totalFilteredCount / pageSize));
   
@@ -432,7 +250,7 @@ export const ExcelImportManagerView: React.FC<ExcelImportManagerViewProps> = ({
         rawRowData: updatedRaw,
         telahDikemaskini: true,
         lastUpdated: new Date().toISOString().replace('T', ' ').slice(0, 16),
-        kemaskiniOleh: 'Kemaskini Data Excel',
+        kemaskiniOleh: 'Kemaskini Data Pelanggan',
       };
 
       onUpdateAccount(updated, changedFields, oldPhone, oldEmail);
@@ -474,7 +292,7 @@ export const ExcelImportManagerView: React.FC<ExcelImportManagerViewProps> = ({
         rawRowData: updatedRaw,
         telahDikemaskini: true,
         lastUpdated: new Date().toISOString().replace('T', ' ').slice(0, 16),
-        kemaskiniOleh: 'Kemaskini Data Excel',
+        kemaskiniOleh: 'Kemaskini Data Pelanggan',
       };
 
       onUpdateAccount(updated, changedFields, activeEditAccount.noTel, activeEditAccount.email);
@@ -485,11 +303,6 @@ export const ExcelImportManagerView: React.FC<ExcelImportManagerViewProps> = ({
     }
 
     setActiveEditAccount(null);
-  };
-
-  const handleDownloadTemplateClick = () => {
-    downloadExcelTemplate();
-    showInfo('Muat Turun Templat Excel', 'Templat fail Excel (.xlsx) dengan struktur lajur piawai telah dimuat turun.');
   };
 
   const handleExportExcelClick = () => {
@@ -509,32 +322,24 @@ export const ExcelImportManagerView: React.FC<ExcelImportManagerViewProps> = ({
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
           <div className="space-y-1.5">
             <div className="flex items-center gap-2">
-              <span className="bg-[#1A1A1A] text-white text-[10px] uppercase font-mono font-bold px-2.5 py-0.5 rounded tracking-wider">
-                Modul Integrasi Excel Pantas
+              <span className="bg-purple-950 text-purple-100 text-[10px] uppercase font-mono font-bold px-2.5 py-0.5 rounded tracking-wider flex items-center gap-1">
+                <Crown className="w-3 h-3 text-amber-400" />
+                Super Admin Data Center
               </span>
               <span className="inline-flex items-center gap-1 bg-emerald-100 text-emerald-950 text-[10px] font-mono font-bold px-2 py-0.5 rounded border border-emerald-300">
-                <Zap className="w-3 h-3 text-emerald-700" />
-                Tanpa Had Baris (No Limit) & 100MB+
+                <Users className="w-3 h-3 text-emerald-700" />
+                {stats.total.toLocaleString()} Jumlah Akaun
               </span>
             </div>
             <h1 className="text-xl sm:text-2xl font-serif-heading font-bold text-stone-950 tracking-tight">
-              Ruangan Import & Kemaskini Data Excel
+              Carian & Kemaskini Data Pelanggan
             </h1>
             <p className="text-xs sm:text-sm text-stone-600 max-w-2xl leading-relaxed font-serif">
-              Muat naik fail Excel atau CSV tanpa had bilangan baris (<strong className="text-stone-900 font-bold">No Limit</strong>) pada <strong>Langkah 1</strong>. Enjin pemprosesan strim pantas membaca puluhan ribu hingga ratusan ribu rekod dengan kelajuan tinggi. Struktur lajur pada <strong>Langkah 2</strong> diselaraskan secara automatik untuk carian dan kemaskini data perhubungan (<strong className="text-stone-900 font-bold">NO HANDPHONE</strong> & <strong className="text-stone-900 font-bold">EMEL PEMILIK/WAKIL</strong>).
+              Carian pantas merentasi seluruh rekod pelanggan, semakan status terkini, dan pengemaskinian data perhubungan (<strong className="text-stone-900 font-bold">NO HANDPHONE</strong> & <strong className="text-stone-900 font-bold">EMEL PEMILIK/WAKIL</strong>) secara langsung.
             </p>
           </div>
 
           <div className="flex flex-wrap items-center gap-2.5 shrink-0">
-            <button
-              onClick={handleDownloadTemplateClick}
-              className="px-3.5 py-2.5 bg-white hover:bg-stone-100 text-stone-800 rounded-xl text-xs font-semibold flex items-center gap-2 border border-stone-300 shadow-2xs transition-all cursor-pointer"
-              title="Muat turun format templat lajur Excel standard"
-            >
-              <Download className="w-4 h-4 text-stone-600" />
-              <span>Muat Turun Templat Excel</span>
-            </button>
-
             <button
               onClick={handleExportExcelClick}
               className="px-3.5 py-2.5 bg-[#1A1A1A] hover:bg-black text-white rounded-xl text-xs font-semibold flex items-center gap-2 border border-stone-800 shadow-2xs transition-all cursor-pointer"
@@ -583,292 +388,23 @@ export const ExcelImportManagerView: React.FC<ExcelImportManagerViewProps> = ({
         </div>
       </div>
 
-      {/* 📥 2. Excel Upload & Staging Zone (Langkah 1) */}
-      <div className="bg-white border border-stone-300 rounded-2xl p-5 sm:p-6 shadow-2xs space-y-4">
-        <div className="flex items-center justify-between pb-3 border-b border-stone-200">
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg bg-[#1A1A1A] text-white flex items-center justify-center font-bold text-xs font-mono shadow-2xs">
-              1
-            </div>
-            <div>
-              <h2 className="font-serif-heading font-bold text-stone-950 text-sm sm:text-base flex items-center gap-2">
-                <span>Langkah 1: Muat Naik Fail Excel Pelanggan</span>
-                <span className="text-[10px] font-mono bg-emerald-50 text-emerald-900 border border-emerald-300 px-2 py-0.5 rounded-full font-bold">
-                  ⚡ Tiada Had Baris (No Limit)
-                </span>
-              </h2>
-              <p className="text-[11px] text-stone-500 font-serif">
-                Muat naik fail Excel (.xlsx / .xls / .csv) tanpa had bilangan baris rekod. Sistem akan mengekstrak semua lajur data secara strim & O(1) indexing pantas.
-              </p>
-            </div>
-          </div>
-
-          <span className="text-[11px] font-mono bg-stone-100 text-stone-700 px-2.5 py-1 rounded-full font-bold border border-stone-200 hidden sm:inline-block">
-            .xlsx / .xls / .csv (No Limit)
-          </span>
-        </div>
-
-        {/* Drag & Drop Box */}
-        <div
-          onDragEnter={handleDrag}
-          onDragLeave={handleDrag}
-          onDragOver={handleDrag}
-          onDrop={handleDrop}
-          onClick={() => !isParsing && fileInputRef.current?.click()}
-          className={`border-2 border-dashed rounded-xl p-6 sm:p-8 text-center transition-all ${
-            isParsing 
-              ? 'border-emerald-500 bg-emerald-50/40 cursor-wait'
-              : dragActive
-                ? 'border-stone-900 bg-stone-100 cursor-pointer'
-                : 'border-stone-300 hover:border-stone-400 bg-[#FAF9F6] cursor-pointer'
-          }`}
-        >
-          <input
-            ref={fileInputRef}
-            type="file"
-            disabled={isParsing}
-            accept=".xlsx, .xls, .csv"
-            onChange={handleFileInputChange}
-            className="hidden"
-          />
-
-          <div className="flex flex-col items-center justify-center space-y-3">
-            <div className="w-14 h-14 rounded-2xl bg-white border border-stone-300 flex items-center justify-center text-stone-700 shadow-2xs">
-              {isParsing ? (
-                <div className="w-7 h-7 border-3 border-emerald-600 border-t-transparent rounded-full animate-spin" />
-              ) : (
-                <FileSpreadsheet className="w-7 h-7 text-emerald-600" />
-              )}
-            </div>
-
-            <div>
-              <p className="font-serif-heading font-bold text-stone-900 text-sm sm:text-base">
-                {isParsing ? 'Sedang Memproses Fail Excel Tanpa Had Baris...' : 'Klik untuk memilih fail atau seret fail Excel (.xlsx / .csv) ke sini'}
-              </p>
-              <p className="text-xs text-stone-500 font-serif mt-0.5">
-                Kapasiti maksimum tanpa sekatan baris — menyokong ratusan ribu rekod dengan enjin pemprosesan berkelajuan tinggi.
-              </p>
-            </div>
-
-            <div className="flex flex-wrap items-center justify-center gap-2 pt-1">
-              <span className="text-[10px] font-mono bg-emerald-50 text-emerald-900 px-2 py-0.5 rounded border border-emerald-300 font-bold">
-                🚀 Tiada Had Baris (No Limit)
-              </span>
-              <span className="text-[10px] font-mono bg-stone-100 text-stone-700 px-2 py-0.5 rounded border border-stone-300">
-                ⚡ Pemprosesan Strim Berkelajuan Tinggi
-              </span>
-              <span className="text-[10px] font-mono bg-emerald-50 text-emerald-900 px-2 py-0.5 rounded border border-emerald-300 font-bold">
-                ✓ No. Akaun Berulang Dikekalkan (Tiada Potongan)
-              </span>
-              <span className="text-[10px] font-mono bg-stone-100 text-stone-700 px-2 py-0.5 rounded border border-stone-300">
-                🛡️ Memori Ringan Dense Mode
-              </span>
-            </div>
-          </div>
-        </div>
-
-        {/* ⚡ 100MB Real-Time Live Progress Bar */}
-        {isParsing && parseProgress && (
-          <div className="p-4 bg-emerald-50/80 border border-emerald-300 rounded-xl space-y-2.5 animate-in fade-in duration-150">
-            <div className="flex items-center justify-between text-xs font-mono font-bold text-emerald-950">
-              <div className="flex items-center gap-2">
-                <Activity className="w-4 h-4 text-emerald-700 animate-pulse" />
-                <span>{parseProgress.phase}</span>
-              </div>
-              <span className="text-sm bg-white px-2.5 py-0.5 rounded-md border border-emerald-300 text-emerald-800">
-                {parseProgress.percent}%
-              </span>
-            </div>
-
-            {/* Progress Bar Container */}
-            <div className="w-full bg-white h-2.5 rounded-full overflow-hidden border border-emerald-200">
-              <div 
-                className="bg-emerald-600 h-full rounded-full transition-all duration-200 ease-out"
-                style={{ width: `${parseProgress.percent}%` }}
-              />
-            </div>
-
-            <div className="flex items-center justify-between text-[11px] font-mono text-emerald-800">
-              <span>Saiz Fail: <strong>{parseProgress.fileSizeMb} MB</strong></span>
-              {parseProgress.totalRows > 0 && (
-                <span>
-                  Baris Diproses: <strong>{parseProgress.processedRows.toLocaleString()}</strong> / {parseProgress.totalRows.toLocaleString()}
-                </span>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* Import Feedback Alert */}
-        {importFeedback && (
-          <div className={`p-3.5 rounded-xl text-xs flex items-center gap-2.5 border ${
-            importFeedback.type === 'success'
-              ? 'bg-emerald-50 text-emerald-950 border-emerald-300'
-              : 'bg-rose-50 text-rose-950 border-rose-300'
-          }`}>
-            {importFeedback.type === 'success' ? (
-              <CheckCircle2 className="w-4 h-4 text-emerald-700 shrink-0" />
-            ) : (
-              <AlertCircle className="w-4 h-4 text-rose-700 shrink-0" />
-            )}
-            <span className="font-medium">{importFeedback.message}</span>
-          </div>
-        )}
-
-        {/* Staging Confirmation Card (when a file has been read in Langkah 1) */}
-        {parseResult && (
-          <div className="p-4 bg-stone-50 border border-stone-300 rounded-xl space-y-3.5">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2.5 border-b border-stone-200">
-              <div className="flex items-center gap-2">
-                <Table className="w-4 h-4 text-emerald-600" />
-                <span className="font-serif-heading font-bold text-stone-900 text-xs sm:text-sm">
-                  Pratonton Fail: {selectedFile?.name}
-                </span>
-                <span className="text-[10px] font-mono bg-white border border-stone-300 px-2 py-0.5 rounded font-bold text-emerald-800">
-                  {parseResult.accounts.length.toLocaleString()} Rekod Baris Sedia Dimasukkan
-                </span>
-              </div>
-
-              {/* Import Mode Options */}
-              <div className="flex items-center gap-2 text-xs font-mono">
-                <span className="text-stone-500 text-[11px]">Mod Kemasukan:</span>
-                <button
-                  type="button"
-                  onClick={() => setImportMode('merge')}
-                  className={`px-2.5 py-1 rounded text-xs font-bold transition-all ${
-                    importMode === 'merge'
-                      ? 'bg-stone-900 text-white'
-                      : 'bg-white text-stone-700 border border-stone-300'
-                  }`}
-                >
-                  Tambah & Selaraskan (Merge)
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setImportMode('replace')}
-                  className={`px-2.5 py-1 rounded text-xs font-bold transition-all ${
-                    importMode === 'replace'
-                      ? 'bg-rose-900 text-white'
-                      : 'bg-white text-stone-700 border border-stone-300'
-                  }`}
-                >
-                  Ganti Semua (Replace)
-                </button>
-              </div>
-            </div>
-
-            {/* ⚡ Breakdown Badges */}
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
-              <div className="p-2.5 bg-white border border-stone-200 rounded-lg space-y-0.5">
-                <div className="text-[10px] text-stone-500 font-mono">Jumlah Baris Fail Dibaca</div>
-                <div className="text-sm font-bold font-mono text-stone-900">
-                  {parseResult.accounts.length.toLocaleString()}
-                </div>
-              </div>
-              <div className="p-2.5 bg-emerald-50/80 border border-emerald-200 rounded-lg space-y-0.5">
-                <div className="text-[10px] text-emerald-800 font-mono font-semibold">Rekod Dimasukkan (100%)</div>
-                <div className="text-sm font-bold font-mono text-emerald-900">
-                  {parseResult.accounts.length.toLocaleString()}
-                </div>
-              </div>
-              <div className="p-2.5 bg-stone-100 border border-stone-300 rounded-lg space-y-0.5 col-span-2 sm:col-span-1">
-                <div className="text-[10px] text-stone-600 font-mono">Status Nyahduplikasi</div>
-                <div className="text-sm font-bold font-mono text-emerald-800 flex items-center gap-1">
-                  <span>Dimansuhkan (Semua Kekal)</span>
-                </div>
-              </div>
-            </div>
-
-            {/* Explanatory Rule Callout */}
-            <div className="p-2.5 bg-emerald-50/60 border border-emerald-200 rounded-lg flex items-start gap-2 text-[11px] text-emerald-950 font-serif">
-              <Info className="w-3.5 h-3.5 text-emerald-700 shrink-0 mt-0.5" />
-              <div>
-                <strong>Pemberitahuan:</strong> Fungsi Nyahduplikasi telah <strong>dimansuhkan sepenuhnya</strong>. Semua baris rekod termasuk baris yang mempunyai <strong>No. Akaun berulang</strong> akan disimpan 100% tanpa sebarang pemotongan atau penggabungan.
-              </div>
-            </div>
-
-            {/* Column Detection Tags */}
-            <div className="text-xs">
-              <span className="text-[11px] text-stone-600 font-serif block mb-1 font-bold">
-                Lajur Dikesan dari Fail Excel (Akan digunakan pada Langkah 2):
-              </span>
-              <div className="flex flex-wrap gap-1.5">
-                {parseResult.detectedColumns.map((col, colIdx) => {
-                  const isPhone = isPhoneColumn(col);
-                  const isMail = isEmailColumn(col);
-                  return (
-                    <span
-                      key={`detected_col_${col}_${colIdx}`}
-                      className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold flex items-center gap-1 border ${
-                        isPhone || isMail
-                          ? 'bg-emerald-100 text-emerald-950 border-emerald-300'
-                          : 'bg-white text-stone-800 border-stone-300'
-                      }`}
-                    >
-                      {isPhone || isMail ? (
-                        <Edit3 className="w-3 h-3 text-emerald-700" />
-                      ) : (
-                        <Lock className="w-2.5 h-2.5 text-stone-500" />
-                      )}
-                      <span>{col}</span>
-                      {isPhone && <span className="text-[9px] text-emerald-800">(No Tel)</span>}
-                      {isMail && <span className="text-[9px] text-emerald-800">(Emel)</span>}
-                    </span>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Confirmation Button */}
-            <div className="flex items-center justify-end gap-2 pt-1">
-              <button
-                type="button"
-                onClick={() => {
-                  setSelectedFile(null);
-                  setParseResult(null);
-                  setParseProgress(null);
-                }}
-                className="px-3.5 py-2 bg-white text-stone-700 hover:bg-stone-100 rounded-xl text-xs font-medium border border-stone-300 transition-colors"
-              >
-                Batal
-              </button>
-              <button
-                type="button"
-                onClick={handleApplyImport}
-                className="px-5 py-2 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl text-xs font-bold shadow-2xs transition-all flex items-center gap-1.5 cursor-pointer"
-              >
-                <CheckCircle2 className="w-4 h-4" />
-                <span>Sahkan & Selaraskan Langkah 2 Mengikut Fail Ini</span>
-              </button>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* 🔍 3. Data Search & Direct Update Workspace (Langkah 2) */}
+      {/* 🔍 2. Data Search & Direct Update Workspace */}
       <div className="bg-[#FAF9F6] border border-stone-300 rounded-2xl p-5 sm:p-6 shadow-2xs space-y-4">
         
-        {/* Step Header */}
+        {/* Workspace Header */}
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 pb-3 border-b border-stone-200">
           <div>
-            <div className="flex items-center gap-2.5">
-              <div className="w-8 h-8 rounded-lg bg-[#1A1A1A] text-white flex items-center justify-center font-bold text-xs font-mono shadow-2xs">
-                2
-              </div>
-              <div>
-                <div className="flex items-center gap-2">
-                  <h2 className="font-serif-heading font-bold text-stone-950 text-base sm:text-lg">
-                    Langkah 2: Carian & Kemaskini Data Pelanggan
-                  </h2>
-                  <span className="bg-stone-900 text-white text-[10px] font-mono px-2 py-0.5 rounded font-bold">
-                    {stats.total} Rekod
-                  </span>
-                </div>
-                <p className="text-xs text-stone-600 font-serif mt-0.5">
-                  Lajur jadual di bawah mengikut <strong>fail data yang dimuat naik pada Langkah 1</strong>. Sunting ruangan <strong className="text-emerald-900 font-bold">NO HANDPHONE</strong> & <strong className="text-emerald-900 font-bold">EMEL PEMILIK/WAKIL</strong> secara pantas.
-                </p>
-              </div>
+            <div className="flex items-center gap-2">
+              <h2 className="font-serif-heading font-bold text-stone-950 text-base sm:text-lg">
+                Carian & Kemaskini Data Pelanggan
+              </h2>
+              <span className="bg-stone-900 text-white text-[10px] font-mono px-2 py-0.5 rounded font-bold">
+                {stats.total.toLocaleString()} Rekod
+              </span>
             </div>
+            <p className="text-xs text-stone-600 font-serif mt-0.5">
+              Sunting ruangan <strong className="text-emerald-900 font-bold">NO HANDPHONE</strong> & <strong className="text-emerald-900 font-bold">EMEL PEMILIK/WAKIL</strong> secara pantas dengan klik pada mana-mana sel atau butang kemaskini.
+            </p>
           </div>
 
           {/* Color Legend Badge */}
@@ -876,12 +412,12 @@ export const ExcelImportManagerView: React.FC<ExcelImportManagerViewProps> = ({
             <span className="font-bold text-stone-800">Petunjuk Warna:</span>
             <div className="flex items-center gap-1">
               <span className="w-2.5 h-2.5 rounded bg-emerald-100 border border-emerald-600"></span>
-              <span className="text-emerald-950 font-semibold">Hijau: Dikemaskini ({stats.updated})</span>
+              <span className="text-emerald-950 font-semibold">Hijau: Dikemaskini ({stats.updated.toLocaleString()})</span>
             </div>
             <span className="text-stone-300">|</span>
             <div className="flex items-center gap-1">
               <span className="w-2.5 h-2.5 rounded bg-stone-50 border border-stone-300"></span>
-              <span className="text-stone-600">Asal ({stats.original})</span>
+              <span className="text-stone-600">Asal ({stats.original.toLocaleString()})</span>
             </div>
           </div>
         </div>
@@ -893,7 +429,7 @@ export const ExcelImportManagerView: React.FC<ExcelImportManagerViewProps> = ({
             <span className="font-serif text-stone-700">
               {customColumnsUploaded ? (
                 <span>
-                  <strong>Field / Lajur Aktif:</strong> Mengikut struktur fail Excel yang dimuat naik ({activeColumns.length} lajur dikesan).
+                  <strong>Field / Lajur Aktif:</strong> Mengikut struktur pangkalan data ({activeColumns.length} lajur dikesan).
                 </span>
               ) : (
                 <span>
@@ -912,7 +448,7 @@ export const ExcelImportManagerView: React.FC<ExcelImportManagerViewProps> = ({
               ✏️ {emailColumnKey}
             </span>
             <span className="px-2 py-0.5 rounded bg-stone-100 text-stone-700 border border-stone-300">
-              🔒 {activeColumns.length - 2} Ruangan Terkunci
+              🔒 {Math.max(0, activeColumns.length - 2)} Ruangan Terkunci
             </span>
           </div>
         </div>
@@ -948,7 +484,7 @@ export const ExcelImportManagerView: React.FC<ExcelImportManagerViewProps> = ({
                   : 'bg-white text-stone-700 hover:bg-stone-100 border border-stone-300'
               }`}
             >
-              Semua ({stats.total})
+              Semua ({stats.total.toLocaleString()})
             </button>
 
             <button
@@ -960,7 +496,7 @@ export const ExcelImportManagerView: React.FC<ExcelImportManagerViewProps> = ({
               }`}
             >
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
-              <span>✨ Dikemaskini ({stats.updated})</span>
+              <span>✨ Dikemaskini ({stats.updated.toLocaleString()})</span>
             </button>
 
             <button
@@ -971,7 +507,7 @@ export const ExcelImportManagerView: React.FC<ExcelImportManagerViewProps> = ({
                   : 'bg-white text-stone-700 hover:bg-stone-100 border border-stone-300'
               }`}
             >
-              ⚪ Rekod Asal ({stats.original})
+              ⚪ Rekod Asal ({stats.original.toLocaleString()})
             </button>
           </div>
         </div>
@@ -1085,7 +621,7 @@ export const ExcelImportManagerView: React.FC<ExcelImportManagerViewProps> = ({
           </div>
         </div>
 
-        {/* 📊 Dynamic Spreadsheet / Table Following Steps 1 Uploaded Columns */}
+        {/* 📊 Dynamic Spreadsheet / Table */}
         <div className="bg-white border border-stone-300 rounded-xl overflow-hidden shadow-2xs">
           <div className="overflow-x-auto max-h-[520px] overflow-y-auto">
             <table className="w-full text-left border-collapse text-xs font-mono">
@@ -1094,7 +630,7 @@ export const ExcelImportManagerView: React.FC<ExcelImportManagerViewProps> = ({
                   <th className="py-3 px-3 w-12 text-center text-stone-400 font-mono text-[10px]">#</th>
                   <th className="py-3 px-3 font-bold whitespace-nowrap">Status Rekod</th>
 
-                  {/* 🔄 Dynamic Headers matching exactly the uploaded Excel fields */}
+                  {/* 🔄 Dynamic Headers */}
                   {activeColumns.map((colName, colIdx) => {
                     const isPhone = isPhoneColumn(colName);
                     const isMail = isEmailColumn(colName);
@@ -1319,7 +855,7 @@ export const ExcelImportManagerView: React.FC<ExcelImportManagerViewProps> = ({
                             );
                           }
 
-                          // Other Read-Only columns from Uploaded File
+                          // Other Read-Only columns
                           return (
                             <td 
                               key={`cell_${acc.noAkaun}_${colName}_${colIdx}`} 
@@ -1427,7 +963,7 @@ export const ExcelImportManagerView: React.FC<ExcelImportManagerViewProps> = ({
         )}
       </div>
 
-      {/* 📝 4. Single Row Direct Edit Modal */}
+      {/* 📝 3. Single Row Direct Edit Modal */}
       {activeEditAccount && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
           <div className="bg-[#FAF9F6] border border-stone-400 rounded-2xl w-full max-w-lg shadow-xl overflow-hidden animate-in fade-in zoom-in-95 duration-150">
@@ -1463,7 +999,7 @@ export const ExcelImportManagerView: React.FC<ExcelImportManagerViewProps> = ({
                 <div className="flex items-center justify-between text-[11px] pb-1 border-b border-stone-200 sticky top-0 bg-[#FAF9F6]">
                   <span className="font-bold text-stone-800 flex items-center gap-1">
                     <Lock className="w-3 h-3 text-stone-500" />
-                    <span>Maklumat Rasmi Fail (Dikunci)</span>
+                    <span>Maklumat Rasmi Akaun (Dikunci)</span>
                   </span>
                   <span className="font-mono text-[10px] text-stone-500">Read-Only</span>
                 </div>

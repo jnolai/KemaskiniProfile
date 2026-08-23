@@ -57,18 +57,17 @@ import {
   simpanKemaskini,
   CENTRAL_APPS_SCRIPT_API_URL
 } from './services/googleSheetsService';
+import { purgeLegacyCredentials, hashPassword } from './utils/security';
 
 const STORAGE_ACCOUNTS_KEY = 'customer_portal_accounts_v6';
 const STORAGE_AUDIT_LOGS_KEY = 'customer_portal_audit_logs_v6';
 const STORAGE_ADMIN_AUTH_KEY = 'customer_portal_admin_authenticated';
 const STORAGE_ADMIN_ROLE_KEY = 'customer_portal_admin_role_v6';
-const STORAGE_ADMIN_PASSWORD_KEY = 'customer_portal_admin_password';
-const STORAGE_SUPER_ADMIN_PASSWORD_KEY = 'customer_portal_super_admin_password';
 const STORAGE_DB_INITIALIZED_KEY = 'customer_portal_db_initialized_v6';
 
 const TAB_LABELS: Record<ActiveTab, string> = {
   lookup: 'Carian & Kemaskini Profil',
-  import_excel: 'Import & Kemaskini Excel',
+  import_excel: 'Carian & Kemaskini Data Pelanggan',
   directory: 'Direktori Akaun',
   audit_logs: 'Log Kemaskini & Audit',
   spreadsheet: 'Pangkalan Data Helaian',
@@ -101,21 +100,10 @@ export default function App() {
   const isAdmin = Boolean(adminRole);
   const isSuperAdmin = adminRole === 'super_admin';
 
-  const [adminPassword, setAdminPassword] = useState<string>(() => {
-    try {
-      return localStorage.getItem(STORAGE_ADMIN_PASSWORD_KEY) || 'admin123';
-    } catch {
-      return 'admin123';
-    }
-  });
-
-  const [superAdminPassword, setSuperAdminPassword] = useState<string>(() => {
-    try {
-      return localStorage.getItem(STORAGE_SUPER_ADMIN_PASSWORD_KEY) || 'superadmin123';
-    } catch {
-      return 'superadmin123';
-    }
-  });
+  // Purge legacy plaintext test credentials from browser storage on load
+  useEffect(() => {
+    purgeLegacyCredentials();
+  }, []);
 
   const [showAdminLoginModal, setShowAdminLoginModal] = useState(false);
   const [pendingAdminTargetTab, setPendingAdminTargetTab] = useState<ActiveTab | undefined>(undefined);
@@ -331,16 +319,14 @@ export default function App() {
   }, [adminRole]);
 
   const handleUpdateAdminPassword = (newPass: string) => {
-    setAdminPassword(newPass);
     try {
-      localStorage.setItem(STORAGE_ADMIN_PASSWORD_KEY, newPass);
+      localStorage.setItem('customer_portal_admin_hash_v2', hashPassword(newPass));
     } catch {}
   };
 
   const handleUpdateSuperAdminPassword = (newPass: string) => {
-    setSuperAdminPassword(newPass);
     try {
-      localStorage.setItem(STORAGE_SUPER_ADMIN_PASSWORD_KEY, newPass);
+      localStorage.setItem('customer_portal_super_admin_hash_v2', hashPassword(newPass));
     } catch {}
   };
 
@@ -655,6 +641,7 @@ export default function App() {
           googleSheetUrl={gsConfig.spreadsheetUrl}
           onSyncFromGoogleSheets={handleSyncFromGoogleSheets}
           onAddFetchedAccount={handleAccountFoundFromGoogleSheets}
+          isSuperAdmin={isSuperAdmin}
         />
       );
     }
@@ -694,8 +681,8 @@ export default function App() {
                 </div>
                 <p className="text-[11px] text-purple-800 leading-relaxed">
                   {adminRole === 'admin' 
-                    ? 'Anda kini log masuk sebagai Pentadbir Biasa. Sila sahkan kata laluan Super Admin (superadmin123) untuk membuka akses import fail dan integrasi Google Sheets.'
-                    : 'Sila log masuk dengan akaun Super Admin untuk menguruskan import pangkalan data Excel dan integrasi Google Sheets.'}
+                    ? 'Anda kini log masuk sebagai Pentadbir Biasa. Sila sahkan kata laluan Super Admin untuk membuka akses pengurusan dan kemaskini data pelanggan.'
+                    : 'Sila log masuk dengan akaun Super Admin untuk menguruskan pangkalan data dan carian khas pelanggan.'}
                 </p>
               </div>
 
@@ -930,19 +917,22 @@ export default function App() {
         )}
       </main>
 
-      {/* Editorial Footer with Copyright and Jnol.Ai */}
+      {/* Editorial Footer with Copyright */}
       <footer className="bg-[#FAF9F6] border-t border-stone-200/90 py-5 text-xs text-stone-600">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 flex flex-col md:flex-row items-center justify-between gap-4">
-          {/* Copyright & Jnol.Ai Brand in matching system colors */}
+          {/* Copyright & Organization Brand */}
           <div className="flex flex-wrap items-center justify-center md:justify-start gap-2.5 text-stone-700 text-xs">
             <span className="w-2 h-2 rounded-full bg-stone-900" />
             <span className="font-serif-heading font-bold text-stone-950 text-sm">eKemaskini</span>
             <span className="text-stone-300">•</span>
             <div className="flex items-center gap-1.5 font-medium text-stone-700">
               <span>&copy; {new Date().getFullYear()} Hakcipta Terpelihara</span>
+              <span className="font-serif-heading font-bold text-stone-900">
+                JNol.Ai
+              </span>
               <span className="text-stone-400">•</span>
               <span className="font-serif-heading font-bold text-stone-900">
-                Jnol.Ai
+                JKEWDBKL@UMKB
               </span>
             </div>
           </div>
@@ -950,9 +940,9 @@ export default function App() {
           {/* Auxiliary Links, Cloud Sync & Role Status */}
           <div className="flex flex-wrap items-center justify-center gap-3 text-stone-500 text-xs font-medium">
             {isCloudConnected && !isFirestoreQuotaExceeded() ? (
-              <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-50/90 border border-emerald-300 text-[11px] font-mono text-emerald-900 shadow-2xs" title="Pangkalan data Firestore Cloud aktif & diselaras secara langsung">
+              <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-50/90 border border-emerald-300 text-[11px] font-mono text-emerald-900 shadow-2xs" title="Pangkalan data awan aktif & diselaras secara langsung">
                 <CloudCheck className="w-3.5 h-3.5 text-emerald-700" />
-                <span>Awan: Firestore Aktif</span>
+                <span>Pangkalan Data Awan: Aktif</span>
               </div>
             ) : (
               <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-50/90 border border-amber-300 text-[11px] font-mono text-amber-900 shadow-2xs" title="Sistem beroperasi dalam Mod Storan Tempatan (IndexedDB & Cache Pantas) secara lancar">
@@ -1033,8 +1023,6 @@ export default function App() {
             setPendingAdminTargetTab(undefined);
           }}
           onSuccess={handleAdminLoginSuccess}
-          currentAdminPassword={adminPassword}
-          currentSuperAdminPassword={superAdminPassword}
           targetTabName={pendingAdminTargetTab ? TAB_LABELS[pendingAdminTargetTab] : undefined}
           targetTabKey={pendingAdminTargetTab}
           isAlreadyAdmin={isAdmin}

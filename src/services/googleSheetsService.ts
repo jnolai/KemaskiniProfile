@@ -37,6 +37,66 @@ export const STANDARD_SHEET_HEADERS = [
 ];
 
 /**
+ * Flexible field value extractor for BigQuery, Apps Script, and Google Sheets objects.
+ * Handles exact matches, snake_case, camelCase, UPPERCASE, spaces, and regex patterns.
+ */
+export function getFlexibleValue(obj: any, candidatePatterns: (string | RegExp)[]): string | undefined {
+  if (!obj || typeof obj !== 'object') return undefined;
+
+  // 1. Exact key lookup
+  for (const pattern of candidatePatterns) {
+    if (typeof pattern === 'string' && obj[pattern] !== undefined && obj[pattern] !== null) {
+      const val = String(obj[pattern]).trim();
+      if (val !== '' && val !== 'undefined' && val !== 'null') return val;
+    }
+  }
+
+  // 2. Normalized key lookup (removes spaces, underscores, hyphens, dots, brackets, lowercases)
+  const clean = (s: string) => s.toLowerCase().replace(/[\s_\-\.\(\)\[\]\/\\:]/g, '');
+  const entries = Object.entries(obj);
+
+  for (const pattern of candidatePatterns) {
+    if (typeof pattern === 'string') {
+      const cleanPattern = clean(pattern);
+      for (const [k, v] of entries) {
+        if (v !== undefined && v !== null) {
+          const val = String(v).trim();
+          if (val !== '' && val !== 'undefined' && val !== 'null' && clean(k) === cleanPattern) {
+            return val;
+          }
+        }
+      }
+    } else if (pattern instanceof RegExp) {
+      for (const [k, v] of entries) {
+        if (v !== undefined && v !== null) {
+          const val = String(v).trim();
+          if (val !== '' && val !== 'undefined' && val !== 'null' && pattern.test(k)) {
+            return val;
+          }
+        }
+      }
+    }
+  }
+
+  // 3. Substring key matching for keywords
+  for (const [k, v] of entries) {
+    if (v !== undefined && v !== null) {
+      const val = String(v).trim();
+      if (val !== '' && val !== 'undefined' && val !== 'null') {
+        const kNorm = k.toLowerCase();
+        for (const pattern of candidatePatterns) {
+          if (typeof pattern === 'string' && pattern.length >= 3 && kNorm.includes(pattern.toLowerCase())) {
+            return val;
+          }
+        }
+      }
+    }
+  }
+
+  return undefined;
+}
+
+/**
  * 1. FUNGSI MEMBACA DATA (Untuk paparan di mana-mana device)
  * Membaca data rekod pelanggan terus daripada Google Apps Script / Google Sheets
  */
@@ -65,84 +125,60 @@ export async function muatTurunDataProfile(customApiUrl?: string): Promise<Custo
         if (!item || typeof item !== 'object') return;
 
         // No Akaun
-        const noAkaun = String(
-          item['No Akaun'] ||
-          item['noAkaun'] ||
-          item['No_Akaun'] ||
-          item['no_akaun'] ||
-          item['AccountNo'] ||
-          item['accountNo'] ||
-          item['No. Akaun'] ||
-          item['no_account'] ||
-          item['ID'] ||
-          `ACC-${10001 + idx}`
-        ).trim();
+        const noAkaun = getFlexibleValue(item, [
+          'No Akaun', 'noAkaun', 'no_akaun', 'NO_AKAUN', 'AccountNo', 'accountNo',
+          'No. Akaun', 'no_account', 'ID', 'id', /akaun/i, /account/i
+        ]) || `ACC-${10001 + idx}`;
 
-        // Nama Pelanggan
-        const nama = String(
-          item['Nama Pelanggan'] ||
-          item['namaPelanggan'] ||
-          item['Nama'] ||
-          item['nama'] ||
-          item['Nama_Pelanggan'] ||
-          item['CustomerName'] ||
-          item['customerName'] ||
-          `Pelanggan ${noAkaun}`
-        ).trim();
+        // Nama Pelanggan (Check all variations from BigQuery / AppsScript)
+        const nama = getFlexibleValue(item, [
+          'Nama Pelanggan', 'nama_pelanggan', 'namaPelanggan', 'NAMA_PELANGGAN', 'NAMA PELANGGAN',
+          'Nama', 'nama', 'NAMA',
+          'Customer Name', 'customer_name', 'customerName', 'CUSTOMER_NAME',
+          'Full Name', 'full_name', 'fullName', 'FULL_NAME',
+          'Nama Penuh', 'nama_penuh', 'namaPenuh', 'NAMA_PENUH',
+          'Nama Pemilik', 'nama_pemilik', 'namaPemilik', 'NAMA_PEMILIK',
+          'Pelanggan', 'pelanggan', 'PELANGGAN',
+          'Name', 'name', 'NAME',
+          /nama/i, /name/i, /pelanggan/i, /pemilik/i, /customer/i
+        ]) || `Pelanggan ${noAkaun}`;
 
         // No Kad Pengenalan / IC
-        const kadPengenalan = String(
-          item['No Kad Pengenalan'] ||
-          item['noIC'] ||
-          item['noIc'] ||
-          item['kadPengenalan'] ||
-          item['IC'] ||
-          item['ic'] ||
-          item['No_Kad_Pengenalan'] ||
-          item['No IC'] ||
-          ''
-        ).trim();
+        const kadPengenalan = getFlexibleValue(item, [
+          'No Kad Pengenalan', 'no_kad_pengenalan', 'noKadPengenalan', 'NO_KAD_PENGENALAN',
+          'No IC', 'no_ic', 'noIC', 'NO_IC', 'IC', 'ic', 'Kad Pengenalan', 'kad_pengenalan',
+          'No KP', 'no_kp', 'noKP', 'NO_KP', 'KP', 'kp', 'NRIC', 'nric', 'Identity Card',
+          /pengenalan/i, /nokp/i, /nric/i, /ic/i, /kad/i
+        ]) || '';
 
         // No Telefon
-        let noTel = String(
-          item['No Telefon (Kemaskini)'] ||
-          item['No Telefon'] ||
-          item['noTel'] ||
-          item['no_tel'] ||
-          item['telefon'] ||
-          item['phone'] ||
-          item['No_Telefon'] ||
-          ''
-        ).trim().replace(/\.0$/, '');
+        let noTel = (getFlexibleValue(item, [
+          'No Telefon (Kemaskini)', 'No Telefon', 'no_telefon', 'noTelefon', 'NO_TELEFON',
+          'No Tel', 'no_tel', 'noTel', 'NO_TEL', 'Telefon', 'telefon', 'TELEFON',
+          'Phone', 'phone', 'PHONE', 'Mobile', 'mobile', 'No HP', 'no_hp', 'noHp',
+          /telefon/i, /phone/i, /tel/i, /hp/i, /mobile/i
+        ]) || '').replace(/\.0$/, '');
 
         // Alamat Email
-        let email = String(
-          item['Alamat Email (Kemaskini)'] ||
-          item['Alamat Email'] ||
-          item['email'] ||
-          item['Email'] ||
-          item['Alamat_Email'] ||
-          item['alamatEmail'] ||
-          ''
-        ).trim();
+        let email = getFlexibleValue(item, [
+          'Alamat Email (Kemaskini)', 'Alamat Email', 'alamat_email', 'alamatEmail', 'ALAMAT_EMAIL',
+          'Email', 'email', 'EMAIL', 'Emel', 'emel', 'EMEL', 'Alamat Emel', 'alamat_emel', 'alamatEmel',
+          /email/i, /emel/i, /mail/i
+        ]) || '';
 
         // Kategori Akaun
-        const kategoriAkaun = String(
-          item['Kategori Akaun'] ||
-          item['kategoriAkaun'] ||
-          item['Kategori'] ||
-          item['kategori'] ||
-          'Kediaman'
-        ).trim();
+        const kategoriAkaun = getFlexibleValue(item, [
+          'Kategori Akaun', 'kategori_akaun', 'kategoriAkaun', 'KATEGORI_AKAUN',
+          'Kategori', 'kategori', 'Category', 'category', 'Jenis Akaun', 'jenis_akaun',
+          /kategori/i, /category/i, /jenis/i
+        ]) || 'Kediaman';
 
         // Status Akaun
-        const rawStatus = String(
-          item['Status Akaun'] ||
-          item['statusAkaun'] ||
-          item['Status'] ||
-          item['status'] ||
-          'Aktif'
-        ).trim();
+        const rawStatus = getFlexibleValue(item, [
+          'Status Akaun', 'status_akaun', 'statusAkaun', 'STATUS_AKAUN',
+          'Status', 'status', 'STATUS', 'Account Status', 'account_status',
+          /status/i
+        ]) || 'Aktif';
 
         let status: CustomerAccount['status'] = 'Aktif';
         if (/tertunggak|overdue|unpaid/i.test(rawStatus)) status = 'Tertunggak';
@@ -150,27 +186,22 @@ export async function muatTurunDataProfile(customApiUrl?: string): Promise<Custo
         else if (/semakan|review|pending/i.test(rawStatus)) status = 'Dalam Semakan';
 
         // Status Kemaskini
-        const statusKemaskini = String(
-          item['Status Kemaskini'] ||
-          item['statusKemaskini'] ||
-          item['Status_Kemaskini'] ||
-          ''
-        ).toLowerCase();
+        const rawStatusKemaskini = (getFlexibleValue(item, [
+          'Status Kemaskini', 'status_kemaskini', 'statusKemaskini', 'STATUS_KEMASKINI',
+          'Telah Dikemaskini', 'telah_dikemaskini', 'telahDikemaskini', 'Flag', 'flag', 'Updated', 'is_updated',
+          /kemaskini/i, /updated/i
+        ]) || '').toLowerCase();
 
-        const telahDikemaskini = statusKemaskini.includes('telah') ||
-                                statusKemaskini.includes('berjaya') ||
-                                statusKemaskini.includes('dikemaskini') ||
-                                statusKemaskini.includes('true') ||
+        const telahDikemaskini = rawStatusKemaskini.includes('telah') ||
+                                rawStatusKemaskini.includes('berjaya') ||
+                                rawStatusKemaskini.includes('dikemaskini') ||
+                                rawStatusKemaskini.includes('true') ||
                                 Boolean(item.telahDikemaskini);
 
-        const lastUpdated = String(
-          item['Tarikh Kemaskini'] ||
-          item['tarikhKemaskini'] ||
-          item['Tarikh Kemaskini Terakhir'] ||
-          item['lastUpdated'] ||
-          item['Timestamp'] ||
-          new Date().toISOString().replace('T', ' ').slice(0, 16)
-        );
+        const lastUpdated = getFlexibleValue(item, [
+          'Tarikh Kemaskini', 'tarikh_kemaskini', 'tarikhKemaskini', 'Tarikh Kemaskini Terakhir',
+          'lastUpdated', 'last_updated', 'Timestamp', 'timestamp', /tarikh/i, /updated/i
+        ]) || new Date().toISOString().replace('T', ' ').slice(0, 16);
 
         accountsList.push({
           id: noAkaun,
@@ -184,7 +215,7 @@ export async function muatTurunDataProfile(customApiUrl?: string): Promise<Custo
           lastUpdated,
           telahDikemaskini,
           rewardStatus: telahDikemaskini ? 'Layak (Belum Dituntut)' : 'Belum Layak',
-          rewardCode: item.rewardCode || item['Kod Hadiah'] || undefined,
+          rewardCode: item.rewardCode || item['Kod Hadiah'] || item['kod_hadiah'] || undefined,
           rawRowData: item
         });
       });
@@ -300,23 +331,65 @@ export async function cariMaklumatPelanggan(
     if (response.status === 'success' && response.data) {
       const data = response.data;
       
-      const parsedNama = String(data["Nama Pelanggan"] || data["namaPelanggan"] || data["Nama"] || `Pelanggan ${inputNoAkaun}`).trim();
-      const parsedIC = String(data["No Kad Pengenalan"] || data["noIC"] || data["No IC"] || '').trim();
-      const parsedPhone = String(data["No Telefon (Kemaskini)"] || data["No Telefon"] || data["noTel"] || '').trim().replace(/\.0$/, '');
-      const parsedEmail = String(data["Alamat Email (Kemaskini)"] || data["Alamat Email"] || data["email"] || '').trim();
-      const parsedKategori = String(data["Kategori Akaun"] || data["kategoriAkaun"] || 'Kediaman').trim();
-      const rawStatus = String(data["Status Akaun"] || data["statusAkaun"] || 'Aktif').trim();
-      const rawStatusKemaskini = String(data["Status Kemaskini"] || data["statusKemaskini"] || '').trim();
+      const parsedNama = getFlexibleValue(data, [
+        'Nama Pelanggan', 'nama_pelanggan', 'namaPelanggan', 'NAMA_PELANGGAN', 'NAMA PELANGGAN',
+        'Nama', 'nama', 'NAMA',
+        'Customer Name', 'customer_name', 'customerName', 'CUSTOMER_NAME',
+        'Full Name', 'full_name', 'fullName', 'FULL_NAME',
+        'Nama Penuh', 'nama_penuh', 'namaPenuh', 'NAMA_PENUH',
+        'Nama Pemilik', 'nama_pemilik', 'namaPemilik', 'NAMA_PEMILIK',
+        'Pelanggan', 'pelanggan', 'PELANGGAN',
+        'Name', 'name', 'NAME',
+        /nama/i, /name/i, /pelanggan/i, /pemilik/i, /customer/i
+      ]) || `Pelanggan ${inputNoAkaun}`;
+
+      const parsedIC = getFlexibleValue(data, [
+        'No Kad Pengenalan', 'no_kad_pengenalan', 'noKadPengenalan', 'NO_KAD_PENGENALAN',
+        'No IC', 'no_ic', 'noIC', 'NO_IC', 'IC', 'ic', 'Kad Pengenalan', 'kad_pengenalan',
+        'No KP', 'no_kp', 'noKP', 'NO_KP', 'KP', 'kp', 'NRIC', 'nric', 'Identity Card',
+        /pengenalan/i, /nokp/i, /nric/i, /ic/i, /kad/i
+      ]) || '';
+
+      const parsedPhone = (getFlexibleValue(data, [
+        'No Telefon (Kemaskini)', 'No Telefon', 'no_telefon', 'noTelefon', 'NO_TELEFON',
+        'No Tel', 'no_tel', 'noTel', 'NO_TEL', 'Telefon', 'telefon', 'TELEFON',
+        'Phone', 'phone', 'PHONE', 'Mobile', 'mobile', 'No HP', 'no_hp', 'noHp',
+        /telefon/i, /phone/i, /tel/i, /hp/i, /mobile/i
+      ]) || '').replace(/\.0$/, '');
+
+      const parsedEmail = getFlexibleValue(data, [
+        'Alamat Email (Kemaskini)', 'Alamat Email', 'alamat_email', 'alamatEmail', 'ALAMAT_EMAIL',
+        'Email', 'email', 'EMAIL', 'Emel', 'emel', 'EMEL', 'Alamat Emel', 'alamat_emel', 'alamatEmel',
+        /email/i, /emel/i, /mail/i
+      ]) || '';
+
+      const parsedKategori = getFlexibleValue(data, [
+        'Kategori Akaun', 'kategori_akaun', 'kategoriAkaun', 'KATEGORI_AKAUN',
+        'Kategori', 'kategori', 'Category', 'category', 'Jenis Akaun', 'jenis_akaun',
+        /kategori/i, /category/i, /jenis/i
+      ]) || 'Kediaman';
+
+      const rawStatus = getFlexibleValue(data, [
+        'Status Akaun', 'status_akaun', 'statusAkaun', 'STATUS_AKAUN',
+        'Status', 'status', 'STATUS', 'Account Status', 'account_status',
+        /status/i
+      ]) || 'Aktif';
+
+      const rawStatusKemaskini = (getFlexibleValue(data, [
+        'Status Kemaskini', 'status_kemaskini', 'statusKemaskini', 'STATUS_KEMASKINI',
+        'Telah Dikemaskini', 'telah_dikemaskini', 'telahDikemaskini', 'Flag', 'flag', 'Updated', 'is_updated',
+        /kemaskini/i, /updated/i
+      ]) || '').toLowerCase();
 
       let status: CustomerAccount['status'] = 'Aktif';
       if (/tertunggak|overdue|unpaid/i.test(rawStatus)) status = 'Tertunggak';
       else if (/selesai|paid|complete/i.test(rawStatus)) status = 'Selesai';
       else if (/semakan|review|pending/i.test(rawStatus)) status = 'Dalam Semakan';
 
-      const telahDikemaskini = rawStatusKemaskini.toLowerCase().includes('telah') ||
-                              rawStatusKemaskini.toLowerCase().includes('berjaya') ||
-                              rawStatusKemaskini.toLowerCase().includes('dikemaskini') ||
-                              rawStatusKemaskini.toLowerCase().includes('true');
+      const telahDikemaskini = rawStatusKemaskini.includes('telah') ||
+                              rawStatusKemaskini.includes('berjaya') ||
+                              rawStatusKemaskini.includes('dikemaskini') ||
+                              rawStatusKemaskini.includes('true');
 
       const customerAccount: CustomerAccount = {
         id: inputNoAkaun,
@@ -327,10 +400,13 @@ export async function cariMaklumatPelanggan(
         email: parsedEmail,
         kategoriAkaun: parsedKategori,
         status: status,
-        lastUpdated: data["Tarikh Kemaskini"] || data["tarikhKemaskini"] || new Date().toISOString().replace('T', ' ').slice(0, 16),
+        lastUpdated: getFlexibleValue(data, [
+          'Tarikh Kemaskini', 'tarikh_kemaskini', 'tarikhKemaskini', 'Tarikh Kemaskini Terakhir',
+          'lastUpdated', 'last_updated', 'Timestamp', 'timestamp', /tarikh/i, /updated/i
+        ]) || new Date().toISOString().replace('T', ' ').slice(0, 16),
         telahDikemaskini,
         rewardStatus: telahDikemaskini ? 'Layak (Belum Dituntut)' : 'Belum Layak',
-        rewardCode: data["Kod Hadiah"] || data["rewardCode"] || undefined,
+        rewardCode: data["Kod Hadiah"] || data["rewardCode"] || data["kod_hadiah"] || undefined,
         rawRowData: data
       };
 

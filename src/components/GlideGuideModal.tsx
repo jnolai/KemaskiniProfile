@@ -76,10 +76,10 @@ export const GlideGuideModal: React.FC<GlideGuideModalProps> = ({ onClose }) => 
           <div className="bg-[#FAF9F6] p-4 rounded-xl border border-stone-300 space-y-2">
             <h4 className="font-serif-heading font-bold text-stone-900 text-sm flex items-center gap-2">
               <span className="w-5 h-5 rounded-full bg-[#1A1A1A] text-white flex items-center justify-center text-[10px] font-mono">3</span>
-              <span>Integrasi Pangkalan Data Google Sheets Langsung (Live Database)</span>
+              <span>Penyegerakan Pangkalan Data Masa Nyata (Real-Time Cloud Sync)</span>
             </h4>
             <p>
-              Pentadbir boleh menghubungkan helaian Google Sheets secara terus sebagai database utama. Anda boleh menarik data (Pull), menghantar rekod (Push), atau mengaktifkan <strong>Live Auto-Sync</strong> supaya setiap kemaskini profil di portal diselaraskan terus ke helaian Google Sheets dalam talian.
+              Setiap maklumat perhubungan yang dikemaskini oleh pelanggan atau Super Admin diselaraskan secara langsung ke pangkalan data awan serta storan tempatan untuk capaian pantas dan selamat.
             </p>
           </div>
 

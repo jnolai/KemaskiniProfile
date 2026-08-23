@@ -15,7 +15,8 @@ import {
   Lock, 
   LogOut,
   Database,
-  Crown
+  Crown,
+  Edit3
 } from 'lucide-react';
 import { ActiveTab, DeviceFrame, AdminRole } from '../types';
 
@@ -53,8 +54,8 @@ export const Navbar: React.FC<NavbarProps> = ({
   const handleTabClick = (tab: ActiveTab) => {
     if (tab === 'lookup') {
       setActiveTab(tab);
-    } else if (tab === 'import_excel' || tab === 'google_sheets') {
-      // 🔒 Super Admin Exclusive Tabs
+    } else if (tab === 'import_excel') {
+      // 🔒 Super Admin Exclusive Tab
       if (isSuperAdmin) {
         setActiveTab(tab);
       } else {
@@ -322,7 +323,7 @@ export const Navbar: React.FC<NavbarProps> = ({
 
           <div className="h-4 w-px bg-stone-300 mx-1 hidden sm:block" />
 
-          {/* 🔒 SUPER ADMIN ONLY: Import & Kemaskini Excel */}
+          {/* 🔒 SUPER ADMIN ONLY: Carian & Kemaskini Pelanggan */}
           <button
             id="tab-import-excel"
             onClick={() => handleTabClick('import_excel')}
@@ -332,39 +333,12 @@ export const Navbar: React.FC<NavbarProps> = ({
                 : 'text-stone-600 hover:text-stone-900 hover:bg-purple-50/60'
             }`}
           >
-            <UploadCloud className="w-4 h-4 text-purple-400" />
-            <span className="font-serif-heading font-semibold">Import & Kemaskini Excel</span>
+            <Edit3 className="w-4 h-4 text-purple-400" />
+            <span className="font-serif-heading font-semibold">Carian & Kemaskini Pelanggan</span>
             {isSuperAdmin ? (
               <span className="inline-flex items-center gap-1 text-[10px] font-mono bg-purple-900/70 text-purple-200 border border-purple-400/40 px-1.5 py-0.2 rounded font-bold">
                 <Crown className="w-2.5 h-2.5 text-amber-400" />
                 Super Admin
-              </span>
-            ) : (
-              <span className="inline-flex items-center gap-1 text-[10px] font-mono bg-purple-100 text-purple-950 border border-purple-300 px-1.5 py-0.2 rounded font-bold">
-                <Lock className="w-2.5 h-2.5 text-purple-700" />
-                Super Admin
-              </span>
-            )}
-          </button>
-
-          {/* 🔒 SUPER ADMIN ONLY: Google Sheets DB */}
-          <button
-            id="tab-google-sheets"
-            onClick={() => handleTabClick('google_sheets')}
-            className={`flex items-center gap-2 px-3.5 py-2 text-xs sm:text-sm font-medium rounded-lg transition-all whitespace-nowrap cursor-pointer ${
-              activeTab === 'google_sheets'
-                ? 'bg-purple-950 text-white shadow-xs'
-                : 'text-stone-600 hover:text-stone-900 hover:bg-purple-50/60'
-            }`}
-          >
-            <Database className="w-4 h-4 text-emerald-400" />
-            <span className="font-serif-heading font-semibold">Google Sheets DB</span>
-            <span className="bg-emerald-100 text-emerald-900 text-[10px] font-mono font-bold px-1.5 py-0.2 rounded-full border border-emerald-300">
-              Live DB
-            </span>
-            {isSuperAdmin ? (
-              <span className="inline-flex items-center gap-0.5 text-[10px] font-mono bg-purple-900/70 text-purple-200 border border-purple-400/40 px-1.5 py-0.2 rounded font-bold">
-                <Crown className="w-2.5 h-2.5 text-amber-400" />
               </span>
             ) : (
               <span className="inline-flex items-center gap-1 text-[10px] font-mono bg-purple-100 text-purple-950 border border-purple-300 px-1.5 py-0.2 rounded font-bold">

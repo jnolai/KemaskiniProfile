@@ -223,7 +223,7 @@ export const ExcelTemplateModal: React.FC<ExcelTemplateModalProps> = ({
                 <div className="p-3.5 bg-stone-50 border border-stone-200 rounded-xl flex items-start gap-2.5 text-xs text-stone-700 font-serif">
                   <Info className="w-4 h-4 text-stone-500 shrink-0 mt-0.5" />
                   <div>
-                    Jadual di bawah menunjukkan contoh baris data yang disertakan di dalam fail templat <strong>Templat_Data_Pelanggan_JnolAi.xlsx</strong>. Anda boleh memadam contoh ini dan menggantikannya dengan rekod akaun pelanggan anda yang sebenar.
+                    Jadual di bawah menunjukkan contoh baris data yang disertakan di dalam fail templat <strong>Templat_Data_Pelanggan_eKemaskini.xlsx</strong>. Anda boleh memadam contoh ini dan menggantikannya dengan rekod akaun pelanggan anda yang sebenar.
                   </div>
                 </div>
 

@@ -100,7 +100,7 @@ export const ClearDataModal: React.FC<ClearDataModalProps> = ({
             <div className="p-3.5 bg-amber-50 border border-amber-200 rounded-xl flex items-start gap-2.5 text-xs text-amber-900 leading-relaxed font-serif">
               <AlertTriangle className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
               <div>
-                <strong>Amaran Keselamatan:</strong> Tindakan ini akan memadamkan secara kekal semua rekod akaun pelanggan dan log audit daripada <strong>Pangkalan Data Awan (Cloud Firestore)</strong> serta storan tempatan pelayar. Tindakan ini <u>tidak boleh diundur</u>.
+                <strong>Amaran Keselamatan:</strong> Tindakan ini akan memadamkan secara kekal semua rekod akaun pelanggan dan log audit daripada <strong>Pangkalan Data Awan</strong> serta storan tempatan pelayar. Tindakan ini <u>tidak boleh diundur</u>.
               </div>
             </div>
 

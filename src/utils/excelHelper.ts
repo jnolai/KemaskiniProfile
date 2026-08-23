@@ -62,7 +62,7 @@ export function downloadExcelTemplate(format: 'xlsx' | 'csv' = 'xlsx') {
   const workbook = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(workbook, worksheet, 'Templat Data Pelanggan');
   
-  const fileName = `Templat_Data_Pelanggan_JnolAi.${format}`;
+  const fileName = `Templat_Data_Pelanggan_eKemaskini.${format}`;
   XLSX.writeFile(workbook, fileName, { bookType: format });
 }
 

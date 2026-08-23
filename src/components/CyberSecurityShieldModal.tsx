@@ -28,13 +28,15 @@ import { useToast } from '../context/ToastContext';
 interface CyberSecurityShieldModalProps {
   isOpen: boolean;
   onClose: () => void;
+  isSuperAdmin?: boolean;
 }
 
 export const CyberSecurityShieldModal: React.FC<CyberSecurityShieldModalProps> = ({
   isOpen,
   onClose,
+  isSuperAdmin = false,
 }) => {
-  const { showSuccess, showInfo } = useToast();
+  const { showSuccess, showError, showInfo } = useToast();
   const [incidents, setIncidents] = useState<SecurityIncident[]>([]);
   const [activeTab, setActiveTab] = useState<'overview' | 'pdpa' | 'incidents'>('overview');
 
@@ -47,9 +49,13 @@ export const CyberSecurityShieldModal: React.FC<CyberSecurityShieldModalProps> =
   if (!isOpen) return null;
 
   const handleClearLogs = () => {
+    if (!isSuperAdmin) {
+      showError('Akses Ditolak', 'Hanya Super Admin sahaja yang dibenarkan mengosongkan Log Pemantauan Ancaman.');
+      return;
+    }
     clearSecurityIncidents();
     setIncidents([]);
-    showSuccess('Log Keselamatan Dikosongkan', 'Semua rekod insiden siber tempatan telah dipadam.');
+    showSuccess('Log Keselamatan Dikosongkan', 'Semua rekod insiden siber tempatan telah dipadam oleh Super Admin.');
   };
 
   return (
@@ -192,19 +198,19 @@ export const CyberSecurityShieldModal: React.FC<CyberSecurityShieldModalProps> =
                   </p>
                 </div>
 
-                {/* 3. Firestore Cloud Rules Validation */}
+                {/* 3. Cloud Database Rules Validation */}
                 <div className="p-4 bg-white border border-stone-200 rounded-2xl shadow-2xs space-y-1.5">
                   <div className="flex items-center justify-between">
                     <span className="font-serif-heading font-bold text-stone-900 flex items-center gap-1.5">
                       <Database className="w-4 h-4 text-emerald-600" />
-                      Peraturan Awan Firestore
+                      Peraturan Pangkalan Data Awan
                     </span>
                     <span className="text-[10px] font-mono font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded">
                       DIKUATKUASA
                     </span>
                   </div>
                   <p className="text-[11px] text-stone-600 font-serif leading-relaxed">
-                    Pangkalan data Firestore mengesahkan had panjang rentetan, jenis data, dan struktur skema sebelum sebarang kemaskini diterima.
+                    Pangkalan data awan mengesahkan had panjang rentetan, jenis data, dan struktur skema sebelum sebarang kemaskini diterima.
                   </p>
                 </div>
 
@@ -284,14 +290,25 @@ export const CyberSecurityShieldModal: React.FC<CyberSecurityShieldModalProps> =
                     : `${incidents.length} aktiviti direkodkan oleh enjin pemantauan.`}
                 </span>
                 {incidents.length > 0 && (
-                  <button
-                    type="button"
-                    onClick={handleClearLogs}
-                    className="px-2.5 py-1 bg-stone-100 hover:bg-stone-200 text-stone-700 rounded-lg text-[10px] font-semibold flex items-center gap-1 border border-stone-300 transition-colors cursor-pointer"
-                  >
-                    <Trash2 className="w-3 h-3 text-stone-500" />
-                    <span>Kosongkan Log</span>
-                  </button>
+                  isSuperAdmin ? (
+                    <button
+                      type="button"
+                      onClick={handleClearLogs}
+                      className="px-2.5 py-1 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-lg text-[10px] font-semibold flex items-center gap-1 border border-rose-200 transition-colors cursor-pointer"
+                      title="Kosongkan Log Pemantauan Ancaman (Akses Super Admin Sahaja)"
+                    >
+                      <Trash2 className="w-3 h-3 text-rose-600" />
+                      <span>Kosongkan Log (Super Admin)</span>
+                    </button>
+                  ) : (
+                    <div 
+                      className="px-2.5 py-1 bg-stone-100 text-stone-500 rounded-lg text-[10px] font-mono flex items-center gap-1 border border-stone-200 cursor-not-allowed select-none"
+                      title="Hanya Super Admin dibenarkan mengosongkan log ancaman ini"
+                    >
+                      <Lock className="w-3 h-3 text-stone-400" />
+                      <span>Kosongkan Log: Super Admin Sahaja</span>
+                    </div>
+                  )
                 )}
               </div>
 
@@ -337,7 +354,7 @@ export const CyberSecurityShieldModal: React.FC<CyberSecurityShieldModalProps> =
         {/* Footer */}
         <div className="p-4 bg-stone-100 border-t border-stone-200 flex items-center justify-between text-xs">
           <span className="text-[11px] text-stone-500 font-mono">
-            Enjin Perlindungan Siber eKemaskini &bull; Dilindungi Cloud Firestore
+            Enjin Perlindungan Siber eKemaskini &bull; Dilindungi Pangkalan Data Awan Selamat
           </span>
           <button
             type="button"
