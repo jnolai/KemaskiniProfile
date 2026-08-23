@@ -60,6 +60,7 @@ import {
   logSecurityIncident 
 } from '../utils/security';
 import { CyberSecurityShieldModal } from './CyberSecurityShieldModal';
+import { Logo } from './Logo';
 import confetti from 'canvas-confetti';
 
 interface CustomerPortalLookupProps {
@@ -511,22 +512,19 @@ export const CustomerPortalLookup: React.FC<CustomerPortalLookupProps> = ({
       
       {/* 🏛️ 1. Header Banner */}
       <div className="bg-[#FAF9F6] border border-stone-300/90 rounded-2xl p-5 sm:p-6 shadow-2xs">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div className="space-y-1.5">
-            <div className="flex items-center gap-2">
-              <span className="bg-stone-900 text-white text-[10px] uppercase font-mono font-bold px-2.5 py-0.5 rounded tracking-wider">
-                eKemaskini
-              </span>
-              <span className="text-xs text-stone-500 font-serif italic">
-                Portal Rasmi Semakan & Kemaskini Profil Pelanggan
-              </span>
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-5">
+          <div className="space-y-3">
+            {/* Transparent Brand Logo with Responsive Auto-Resize */}
+            <div className="flex items-center">
+              <Logo 
+                size="lg" 
+                className="h-10 sm:h-12 md:h-14 lg:h-16 w-auto max-w-[280px] sm:max-w-[360px] md:max-w-[440px]" 
+                showSubtitle={true}
+              />
             </div>
-            <h1 className="text-xl sm:text-2xl font-serif-heading font-bold text-stone-950 tracking-tight">
-              eKemaskini: Carian & Kemaskini Profil
-            </h1>
-            <p className="text-xs sm:text-sm text-stone-600 max-w-2xl leading-relaxed font-serif">
-              Masukkan <strong className="text-stone-900 font-bold">Nombor Akaun</strong> anda untuk mencari dan mengesahkan profil. Demi keselamatan integriti data, 
-              anda hanya dibenarkan mengemaskini <strong className="text-stone-900 font-bold">Nombor Telefon</strong> dan <strong className="text-stone-900 font-bold">Alamat Email</strong>.
+            
+            <p className="text-xs sm:text-sm text-stone-600 max-w-2xl leading-relaxed font-serif pt-0.5">
+              Sistem carian akaun dan pengemaskinian profil pelanggan secara layan diri yang selamat. Masukkan <strong className="text-stone-900 font-bold">Nombor Akaun</strong> anda untuk menyemak profil. Demi keselamatan dan pematuhan PDPA, anda hanya dibenarkan mengemaskini <strong className="text-stone-900 font-bold">Nombor Telefon</strong> dan <strong className="text-stone-900 font-bold">Alamat Email</strong>.
             </p>
           </div>
 

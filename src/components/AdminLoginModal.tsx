@@ -22,6 +22,7 @@ import {
   Clock
 } from 'lucide-react';
 import { motion } from 'motion/react';
+import { Logo } from './Logo';
 import { useToast } from '../context/ToastContext';
 import { ActiveTab, AdminRole } from '../types';
 import { 
@@ -189,18 +190,8 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
         <div className="w-full md:w-1/2 p-6 sm:p-10 flex flex-col justify-between">
           <div>
             {/* Brand / Logo Header */}
-            <div className="flex items-center gap-2.5 mb-6">
-              <div className="w-9 h-9 rounded-xl bg-stone-900 text-white flex items-center justify-center font-serif-heading font-black text-base shadow-sm border border-stone-800">
-                e
-              </div>
-              <div>
-                <span className="font-serif-heading font-bold text-sm tracking-tight text-stone-950 block leading-none">
-                  eKemaskini
-                </span>
-                <span className="text-[10px] text-stone-500 font-mono">
-                  Sistem Pengurusan & Keselamatan Data
-                </span>
-              </div>
+            <div className="mb-6">
+              <Logo size="md" className="h-9 sm:h-10 max-w-[240px]" showSubtitle={true} />
             </div>
 
             {/* Title & Context */}

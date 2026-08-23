@@ -1,0 +1,112 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 920 230" fill="none">
+  <defs>
+    <!-- Main Swoosh Arc: Transition from Royal Cerulean Blue into Fiery Orange -->
+    <linearGradient id="ekmSwooshGrad" x1="10%" y1="70%" x2="90%" y2="20%">
+      <stop offset="0%" stop-color="#1A5B9C" />
+      <stop offset="35%" stop-color="#1E6CB8" />
+      <stop offset="55%" stop-color="#D84315" />
+      <stop offset="75%" stop-color="#E65100" />
+      <stop offset="100%" stop-color="#FF9100" />
+    </linearGradient>
+
+    <!-- Top Flame Wing Arc -->
+    <linearGradient id="ekmFlameTopGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FF9800" />
+      <stop offset="100%" stop-color="#E65100" />
+    </linearGradient>
+
+    <!-- Inner 'e' Blue Gradient -->
+    <linearGradient id="ekmBlueEGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#2471A3" />
+      <stop offset="100%" stop-color="#1A4A6E" />
+    </linearGradient>
+  </defs>
+
+  <!-- 🔷 Left Hexagon Emblem (scaled 0.42x to fit 230px height) -->
+  <g id="ekemaskini-emblem" transform="translate(10, 10) scale(0.42)">
+    <!-- Top-left to top-center to top-right gap -->
+    <path 
+      d="M 125 150 L 250 80 L 375 150" 
+      fill="none" 
+      stroke="#162E4F" 
+      stroke-width="36" 
+      stroke-linecap="round" 
+      stroke-linejoin="round" 
+    />
+
+    <!-- Lower-right to bottom-center to bottom-left to top-left -->
+    <path 
+      d="M 425 240 L 425 350 L 250 450 L 125 350 L 125 150" 
+      fill="none" 
+      stroke="#162E4F" 
+      stroke-width="36" 
+      stroke-linecap="round" 
+      stroke-linejoin="round" 
+    />
+
+    <!-- Left Blue Tail Swoop -->
+    <path 
+      d="M 75 245 C 75 300, 130 330, 200 310" 
+      fill="none" 
+      stroke="#1B5E99" 
+      stroke-width="28" 
+      stroke-linecap="round" 
+    />
+
+    <!-- Central Royal Blue 'e' -->
+    <path 
+      d="M 245 175 C 190 175, 155 215, 155 270 C 155 325, 190 365, 245 365 C 285 365, 315 345, 330 315 L 290 295 C 282 310, 268 322, 245 322 C 218 322, 198 302, 195 275 L 335 275 C 336 270, 337 262, 337 255 C 337 210, 300 175, 245 175 Z M 195 245 C 198 220, 215 208, 243 208 C 270 208, 288 220, 292 245 L 195 245 Z" 
+      fill="url(#ekmBlueEGrad)" 
+    />
+
+    <!-- Dynamic Orange/Gold Flame Swoosh -->
+    <path 
+      d="M 175 305 C 210 360, 295 365, 355 305 C 395 265, 420 205, 440 135 C 410 160, 380 180, 345 190 C 375 210, 355 260, 310 285 C 265 310, 215 300, 175 305 Z" 
+      fill="url(#ekmSwooshGrad)" 
+    />
+
+    <!-- Top Flame Arrow Wing -->
+    <path 
+      d="M 345 115 C 375 115, 435 130, 465 175 C 460 140, 435 115, 395 105 C 375 100, 355 105, 345 115 Z" 
+      fill="url(#ekmFlameTopGrad)" 
+    />
+    <path 
+      d="M 440 135 L 452 172 C 438 162, 418 160, 400 165 Z" 
+      fill="#E65100" 
+    />
+  </g>
+
+  <!-- 🔶 Right Brand Wordmark -->
+  <!-- "e" in vibrant orange -->
+  <text 
+    x="228" 
+    y="126" 
+    font-family="'Plus Jakarta Sans', 'Outfit', 'Poppins', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" 
+    font-size="118" 
+    font-weight="900" 
+    fill="#FF6E00" 
+    letter-spacing="-1.5"
+  >e</text>
+
+  <!-- "Kemaskini" in dark navy -->
+  <text 
+    x="300" 
+    y="126" 
+    font-family="'Plus Jakarta Sans', 'Outfit', 'Poppins', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" 
+    font-size="118" 
+    font-weight="900" 
+    fill="#162E4F" 
+    letter-spacing="-2"
+  >Kemaskini</text>
+
+  <!-- 📄 Subtitle: "- Portal Profil Pelanggan" -->
+  <text 
+    x="228" 
+    y="188" 
+    font-family="'Plus Jakarta Sans', 'Outfit', 'Poppins', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" 
+    font-size="42" 
+    font-weight="700" 
+    fill="#162E4F" 
+    letter-spacing="0.5"
+  >- Portal Profil Pelanggan</text>
+</svg>

@@ -19,6 +19,7 @@ import {
   Edit3
 } from 'lucide-react';
 import { ActiveTab, DeviceFrame, AdminRole } from '../types';
+import { Logo } from './Logo';
 
 interface NavbarProps {
   activeTab: ActiveTab;
@@ -77,23 +78,16 @@ export const Navbar: React.FC<NavbarProps> = ({
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16">
           {/* Logo & Editorial Masthead */}
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-[#1A1A1A] flex items-center justify-center text-[#FDFCFB] shadow-xs border border-stone-800">
-              <UserCheck className="w-5 h-5 stroke-[1.75]" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="font-serif-heading font-bold text-[#1A1A1A] text-xl tracking-tight">
-                  eKemaskini
-                </span>
-                <span className="text-[10px] uppercase font-mono tracking-widest bg-stone-100 text-stone-800 border border-stone-300/80 px-2 py-0.5 rounded font-semibold">
-                  Portal Profil
-                </span>
-              </div>
-              <p className="text-xs text-stone-500 font-sans hidden sm:block">
-                Carian Akaun & Kemaskini Nombor Telefon & Email Pelanggan
-              </p>
-            </div>
+          <div 
+            className="flex items-center gap-3 cursor-pointer group"
+            onClick={() => setActiveTab('lookup')}
+            title="eKemaskini - Portal Profil Pelanggan"
+          >
+            <Logo 
+              size="md" 
+              className="h-8 sm:h-9 md:h-10 w-auto max-w-[200px] sm:max-w-[260px] md:max-w-[320px] transition-transform duration-200 group-hover:scale-[1.02]" 
+              showSubtitle={true}
+            />
           </div>
 
           {/* Device Frame Viewport Switcher */}
