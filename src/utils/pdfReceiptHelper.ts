@@ -1,5 +1,6 @@
 import jsPDF from 'jspdf';
 import { CustomerAccount } from '../types';
+import { getMalaysiaDate } from './dateHelper';
 
 export interface PDFReceiptOptions {
   receiptNo?: string;
@@ -22,13 +23,13 @@ export function generateProfileSummaryPDF(
     format: 'a4',
   });
 
+  const mytDateStr = getMalaysiaDate().replace(/-/g, '');
   const receiptNo =
     options.receiptNo ||
-    `REC-${new Date().getFullYear()}${String(new Date().getMonth() + 1).padStart(2, '0')}${String(
-      new Date().getDate()
-    ).padStart(2, '0')}-${account.noAkaun.replace(/[^a-zA-Z0-9]/g, '')}`;
+    `REC-${mytDateStr}-${account.noAkaun.replace(/[^a-zA-Z0-9]/g, '')}`;
 
   const printTimestamp = new Date().toLocaleString('ms-MY', {
+    timeZone: 'Asia/Kuala_Lumpur',
     dateStyle: 'full',
     timeStyle: 'medium',
   });

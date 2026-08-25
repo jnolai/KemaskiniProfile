@@ -10,12 +10,8 @@ interface LogoProps {
 }
 
 /**
- * High-definition Vector Logo for eKemaskini.
- * Accurately replicates the authentic ekemaskini.jpg design:
- * - Navy hexagon frame with top-right flame pass-through
- * - Blue looping 'e' in center with left tail swoop
- * - Dynamic fiery orange-to-gold flame swoosh arching top-right
- * - Full "eKemaskini - Portal Profil Pelanggan" typography
+ * Official eKemaskini Logo component matching GG.jpg.
+ * Pure vector SVG with transparent background and crisp responsive rendering across all screen sizes.
  */
 export const Logo: React.FC<LogoProps> = ({
   className = '',
@@ -45,7 +41,7 @@ export const Logo: React.FC<LogoProps> = ({
         title={altText}
       >
         <svg 
-          viewBox="0 0 500 500" 
+          viewBox="0 0 210 210" 
           fill="none" 
           xmlns="http://www.w3.org/2000/svg"
           className={`${sizeClasses} object-contain transition-transform duration-200`}
@@ -53,70 +49,60 @@ export const Logo: React.FC<LogoProps> = ({
           preserveAspectRatio="xMidYMid meet"
         >
           <defs>
-            <linearGradient id="emblemSwoosh" x1="10%" y1="70%" x2="90%" y2="20%">
-              <stop offset="0%" stopColor="#1A5B9C" />
-              <stop offset="35%" stopColor="#1E6CB8" />
-              <stop offset="55%" stopColor="#D84315" />
-              <stop offset="75%" stopColor="#E65100" />
-              <stop offset="100%" stopColor="#FF9100" />
+            <linearGradient id="ggEmblemSwoosh" x1="0%" y1="100%" x2="100%" y2="0%">
+              <stop offset="0%" stopColor="#D84315" />
+              <stop offset="30%" stopColor="#F4511E" />
+              <stop offset="65%" stopColor="#FF6D00" />
+              <stop offset="100%" stopColor="#FFA000" />
             </linearGradient>
-            <linearGradient id="emblemFlameTop" x1="0%" y1="0%" x2="100%" y2="100%">
-              <stop offset="0%" stopColor="#FF9800" />
+            <linearGradient id="ggEmblemWing" x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" stopColor="#FFA726" />
               <stop offset="100%" stopColor="#E65100" />
-            </linearGradient>
-            <linearGradient id="emblemBlueE" x1="0%" y1="0%" x2="100%" y2="100%">
-              <stop offset="0%" stopColor="#2471A3" />
-              <stop offset="100%" stopColor="#1A4A6E" />
             </linearGradient>
           </defs>
 
-          {/* Hexagon frame */}
+          {/* Hexagon Frame */}
           <path 
-            d="M 125 150 L 250 80 L 375 150" 
+            d="M 96 18 L 174 62 L 174 152 L 96 196 L 18 152 L 18 62 Z" 
             fill="none" 
-            stroke="#162E4F" 
-            strokeWidth="36" 
-            strokeLinecap="round" 
+            stroke="#0E2A54" 
+            strokeWidth="16" 
             strokeLinejoin="round" 
-          />
-          <path 
-            d="M 425 240 L 425 350 L 250 450 L 125 350 L 125 150" 
-            fill="none" 
-            stroke="#162E4F" 
-            strokeWidth="36" 
-            strokeLinecap="round" 
-            strokeLinejoin="round" 
+            strokeLinecap="round"
           />
 
-          {/* Left Tail */}
+          {/* Bottom-left Loop */}
           <path 
-            d="M 75 245 C 75 300, 130 330, 200 310" 
+            d="M 8 116 C 6 138, 24 156, 52 146 C 76 138, 92 122, 102 104" 
             fill="none" 
-            stroke="#1B5E99" 
-            strokeWidth="28" 
+            stroke="#0E2A54" 
+            strokeWidth="13" 
             strokeLinecap="round" 
           />
 
-          {/* Blue 'e' */}
+          {/* Inner Navy 'e' */}
           <path 
-            d="M 245 175 C 190 175, 155 215, 155 270 C 155 325, 190 365, 245 365 C 285 365, 315 345, 330 315 L 290 295 C 282 310, 268 322, 245 322 C 218 322, 198 302, 195 275 L 335 275 C 336 270, 337 262, 337 255 C 337 210, 300 175, 245 175 Z M 195 245 C 198 220, 215 208, 243 208 C 270 208, 288 220, 292 245 L 195 245 Z" 
-            fill="url(#emblemBlueE)" 
+            d="M 96 68 C 75 68, 60 82, 60 102 C 60 122, 75 136, 96 136 C 112 136, 124 128, 129 116 L 113 108 C 110 114, 104 118, 96 118 C 85 118, 77 110, 76 99 L 131 99 C 131.5 97, 132 94, 132 91 C 132 78, 118 68, 96 68 Z M 76 88 C 79 79, 86 75, 96 75 C 105 75, 112 79, 114 88 L 76 88 Z" 
+            fill="#0E2A54"
           />
 
-          {/* Fiery Swoosh */}
+          {/* Dynamic Orange Arrow Swoosh */}
           <path 
-            d="M 175 305 C 210 360, 295 365, 355 305 C 395 265, 420 205, 440 135 C 410 160, 380 180, 345 190 C 375 210, 355 260, 310 285 C 265 310, 215 300, 175 305 Z" 
-            fill="url(#emblemSwoosh)" 
-          />
-
-          {/* Top Flame Wing */}
-          <path 
-            d="M 345 115 C 375 115, 435 130, 465 175 C 460 140, 435 115, 395 105 C 375 100, 355 105, 345 115 Z" 
-            fill="url(#emblemFlameTop)" 
+            d="M 28 126 C 42 152, 88 158, 124 130 C 154 106, 172 66, 186 26 C 172 38, 156 46, 142 48 C 156 58, 144 86, 120 102 C 92 120, 60 114, 42 98 Z" 
+            fill="url(#ggEmblemSwoosh)" 
           />
           <path 
-            d="M 440 135 L 452 172 C 438 162, 418 160, 400 165 Z" 
-            fill="#E65100" 
+            d="M 186 26 L 191 52 C 182 46, 170 45, 158 48 Z" 
+            fill="url(#ggEmblemSwoosh)" 
+          />
+          <path 
+            d="M 186 26 L 158 48 C 166 42, 176 36, 186 26 Z" 
+            fill="#BF360C" 
+            opacity="0.8"
+          />
+          <path 
+            d="M 148 38 C 160 38, 180 44, 192 60 C 190 48, 180 38, 166 34 Z" 
+            fill="url(#ggEmblemWing)" 
           />
         </svg>
       </div>
@@ -132,7 +118,7 @@ export const Logo: React.FC<LogoProps> = ({
       title={altText}
     >
       <svg 
-        viewBox="0 0 920 230" 
+        viewBox="0 0 940 230" 
         fill="none" 
         xmlns="http://www.w3.org/2000/svg"
         className={`w-auto max-w-full ${sizeClasses} object-contain transition-transform duration-200`}
@@ -140,103 +126,86 @@ export const Logo: React.FC<LogoProps> = ({
         preserveAspectRatio="xMidYMid meet"
       >
         <defs>
-          {/* Vibrant Gradient for Dynamic Orange Swoosh Arrow */}
-          <linearGradient id="ekmSwooshGrad" x1="10%" y1="70%" x2="90%" y2="20%">
-            <stop offset="0%" stopColor="#1A5B9C" />
-            <stop offset="35%" stopColor="#1E6CB8" />
-            <stop offset="55%" stopColor="#D84315" />
-            <stop offset="75%" stopColor="#E65100" />
-            <stop offset="100%" stopColor="#FF9100" />
-          </linearGradient>
-          
-          <linearGradient id="ekmFlameTopGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-            <stop offset="0%" stopColor="#FF9800" />
-            <stop offset="100%" stopColor="#E65100" />
+          <linearGradient id="ggOrangeGrad" x1="0%" y1="100%" x2="100%" y2="0%">
+            <stop offset="0%" stopColor="#D84315" />
+            <stop offset="30%" stopColor="#F4511E" />
+            <stop offset="65%" stopColor="#FF6D00" />
+            <stop offset="100%" stopColor="#FFA000" />
           </linearGradient>
 
-          <linearGradient id="ekmBlueEGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-            <stop offset="0%" stopColor="#2471A3" />
-            <stop offset="100%" stopColor="#1A4A6E" />
+          <linearGradient id="ggTopWingGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stopColor="#FFA726" />
+            <stop offset="100%" stopColor="#E65100" />
           </linearGradient>
         </defs>
 
-        {/* 🔷 Left Hexagon Emblem (Matching ekemaskini.jpg exactly) */}
-        <g id="ekemaskini-emblem" transform="translate(10, 10) scale(0.42)">
-          {/* Hexagon Top Segments */}
+        {/* 🔷 Left Hexagon Emblem */}
+        <g id="emblem-gg" transform="translate(10, 8)">
           <path 
-            d="M 125 150 L 250 80 L 375 150" 
+            d="M 96 18 L 174 62 L 174 152 L 96 196 L 18 152 L 18 62 Z" 
             fill="none" 
-            stroke="#162E4F" 
-            strokeWidth="36" 
-            strokeLinecap="round" 
+            stroke="#0E2A54" 
+            strokeWidth="16" 
             strokeLinejoin="round" 
+            strokeLinecap="round"
           />
 
-          {/* Hexagon Bottom & Side Segments */}
           <path 
-            d="M 425 240 L 425 350 L 250 450 L 125 350 L 125 150" 
+            d="M 8 116 C 6 138, 24 156, 52 146 C 76 138, 92 122, 102 104" 
             fill="none" 
-            stroke="#162E4F" 
-            strokeWidth="36" 
-            strokeLinecap="round" 
-            strokeLinejoin="round" 
-          />
-
-          {/* Left Tail Swoop */}
-          <path 
-            d="M 75 245 C 75 300, 130 330, 200 310" 
-            fill="none" 
-            stroke="#1B5E99" 
-            strokeWidth="28" 
+            stroke="#0E2A54" 
+            strokeWidth="13" 
             strokeLinecap="round" 
           />
 
-          {/* Central Blue 'e' */}
           <path 
-            d="M 245 175 C 190 175, 155 215, 155 270 C 155 325, 190 365, 245 365 C 285 365, 315 345, 330 315 L 290 295 C 282 310, 268 322, 245 322 C 218 322, 198 302, 195 275 L 335 275 C 336 270, 337 262, 337 255 C 337 210, 300 175, 245 175 Z M 195 245 C 198 220, 215 208, 243 208 C 270 208, 288 220, 292 245 L 195 245 Z" 
-            fill="url(#ekmBlueEGrad)" 
+            d="M 96 68 C 75 68, 60 82, 60 102 C 60 122, 75 136, 96 136 C 112 136, 124 128, 129 116 L 113 108 C 110 114, 104 118, 96 118 C 85 118, 77 110, 76 99 L 131 99 C 131.5 97, 132 94, 132 91 C 132 78, 118 68, 96 68 Z M 76 88 C 79 79, 86 75, 96 75 C 105 75, 112 79, 114 88 L 76 88 Z" 
+            fill="#0E2A54"
           />
 
-          {/* Dynamic Fiery Orange Swoosh */}
           <path 
-            d="M 175 305 C 210 360, 295 365, 355 305 C 395 265, 420 205, 440 135 C 410 160, 380 180, 345 190 C 375 210, 355 260, 310 285 C 265 310, 215 300, 175 305 Z" 
-            fill="url(#ekmSwooshGrad)" 
+            d="M 28 126 C 42 152, 88 158, 124 130 C 154 106, 172 66, 186 26 C 172 38, 156 46, 142 48 C 156 58, 144 86, 120 102 C 92 120, 60 114, 42 98 Z" 
+            fill="url(#ggOrangeGrad)" 
           />
-
-          {/* Top Flame Wing */}
+          
           <path 
-            d="M 345 115 C 375 115, 435 130, 465 175 C 460 140, 435 115, 395 105 C 375 100, 355 105, 345 115 Z" 
-            fill="url(#ekmFlameTopGrad)" 
+            d="M 186 26 L 191 52 C 182 46, 170 45, 158 48 Z" 
+            fill="url(#ggOrangeGrad)" 
           />
           <path 
-            d="M 440 135 L 452 172 C 438 162, 418 160, 400 165 Z" 
-            fill="#E65100" 
+            d="M 186 26 L 158 48 C 166 42, 176 36, 186 26 Z" 
+            fill="#BF360C" 
+            opacity="0.8"
+          />
+          <path 
+            d="M 148 38 C 160 38, 180 44, 192 60 C 190 48, 180 38, 166 34 Z" 
+            fill="url(#ggTopWingGrad)" 
           />
         </g>
 
         {/* 🔶 Right Wordmark */}
         {/* Letter 'e' in bold vivid orange */}
         <text 
-          x="228" 
+          x="235" 
           y="126" 
           fontFamily="'Plus Jakarta Sans', 'Outfit', 'Poppins', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" 
           fontSize="118" 
           fontWeight="900" 
-          fill="#FF6E00" 
-          letterSpacing="-1.5"
+          fill="#FF6D00" 
+          letterSpacing="-1"
         >
           e
         </text>
 
         {/* Word 'Kemaskini' in dark navy */}
         <text 
-          x="300" 
+          x="308" 
           y="126" 
           fontFamily="'Plus Jakarta Sans', 'Outfit', 'Poppins', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" 
           fontSize="118" 
           fontWeight="900" 
-          fill="#162E4F" 
-          letterSpacing="-2"
+          fill="#0E2A54" 
+          letterSpacing="-1.8"
         >
           Kemaskini
         </text>
@@ -244,12 +213,12 @@ export const Logo: React.FC<LogoProps> = ({
         {/* 📄 Subtitle: "- Portal Profil Pelanggan" */}
         {showSubtitle && (
           <text 
-            x="228" 
+            x="235" 
             y="188" 
             fontFamily="'Plus Jakarta Sans', 'Outfit', 'Poppins', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" 
-            fontSize="42" 
+            fontSize="43" 
             fontWeight="700" 
-            fill="#162E4F" 
+            fill="#0E2A54" 
             letterSpacing="0.5"
           >
             - Portal Profil Pelanggan

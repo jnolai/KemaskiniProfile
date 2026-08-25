@@ -43,13 +43,13 @@ const TEMPLATE_COLUMNS_INFO = [
     example: '880112-14-5543',
   },
   {
-    name: 'No Handphone',
+    name: 'No Telefon',
     required: false,
     desc: 'Nombor telefon terkini untuk kemas kini data & notifikasi SMS/WhatsApp.',
     example: '012-3456789',
   },
   {
-    name: 'Emel Pemilik/Wakil',
+    name: 'Alamat EMail',
     required: false,
     desc: 'Alamat emel rasmi untuk penghantaran resit PDF & bil digital.',
     example: 'ahmad.abdullah@email.com',
@@ -61,7 +61,7 @@ const TEMPLATE_COLUMNS_INFO = [
     example: 'Kediaman',
   },
   {
-    name: 'Status',
+    name: 'Status Akaun',
     required: false,
     desc: 'Status akaun terkini seperti Aktif, Tertunggak, atau Tidak Aktif.',
     example: 'Aktif',
@@ -236,10 +236,10 @@ export const ExcelTemplateModal: React.FC<ExcelTemplateModalProps> = ({
                           <th className="py-2.5 px-3 font-bold">No Akaun <span className="text-red-400">*</span></th>
                           <th className="py-2.5 px-3 font-bold">Nama Pemilik <span className="text-red-400">*</span></th>
                           <th className="py-2.5 px-3 font-bold">No Kad Pengenalan</th>
-                          <th className="py-2.5 px-3 font-bold">No Handphone</th>
-                          <th className="py-2.5 px-3 font-bold">Emel Pemilik/Wakil</th>
+                          <th className="py-2.5 px-3 font-bold">No Telefon</th>
+                          <th className="py-2.5 px-3 font-bold">Alamat EMail</th>
                           <th className="py-2.5 px-3 font-bold">Kategori Akaun</th>
-                          <th className="py-2.5 px-3 font-bold">Status</th>
+                          <th className="py-2.5 px-3 font-bold">Status Akaun</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-stone-200 bg-white font-mono text-[11px]">
@@ -255,17 +255,17 @@ export const ExcelTemplateModal: React.FC<ExcelTemplateModalProps> = ({
                               {row['No Kad Pengenalan']}
                             </td>
                             <td className="py-2.5 px-3 text-emerald-700 font-semibold whitespace-nowrap">
-                              {row['No Handphone']}
+                              {row['No Telefon']}
                             </td>
                             <td className="py-2.5 px-3 text-emerald-700 whitespace-nowrap">
-                              {row['Emel Pemilik/Wakil']}
+                              {row['Alamat EMail']}
                             </td>
                             <td className="py-2.5 px-3 text-stone-600 whitespace-nowrap font-sans">
                               {row['Kategori Akaun']}
                             </td>
                             <td className="py-2.5 px-3 whitespace-nowrap">
                               <span className="px-2 py-0.5 rounded bg-emerald-50 text-emerald-800 border border-emerald-200 text-[10px] font-sans font-medium">
-                                {row['Status']}
+                                {row['Status Akaun']}
                               </span>
                             </td>
                           </tr>

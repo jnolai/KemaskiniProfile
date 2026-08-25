@@ -19,11 +19,13 @@ import { AccountDirectoryView } from './components/AccountDirectoryView';
 import { AuditLogsView } from './components/AuditLogsView';
 import { CustomerSpreadsheetView } from './components/CustomerSpreadsheetView';
 import { ExcelImportManagerView } from './components/ExcelImportManagerView';
+import { GiftManagementSection } from './components/GiftManagementSection';
 import { GoogleSheetsDatabaseView } from './components/GoogleSheetsDatabaseView';
 import { GlideGuideModal } from './components/GlideGuideModal';
 import { AdminLoginModal } from './components/AdminLoginModal';
-import { ClearDataModal } from './components/ClearDataModal';
+import { ResetDisplayModal, ResetSectionKey } from './components/ResetDisplayModal';
 import { exportAccountsToExcel } from './utils/excelHelper';
+import { getMalaysiaDateTime, getMalaysiaTime } from './utils/dateHelper';
 import { useToast } from './context/ToastContext';
 import { Lock, ShieldAlert, ArrowLeft, KeyRound, Cloud, CloudCheck, CloudOff, Database, Crown, Shield, HardDrive } from 'lucide-react';
 import { 
@@ -72,6 +74,7 @@ const TAB_LABELS: Record<ActiveTab, string> = {
   audit_logs: 'Log Kemaskini & Audit',
   spreadsheet: 'Pangkalan Data Helaian',
   google_sheets: 'Pangkalan Data Google Sheets',
+  gift_management: 'Pengurusan Hadiah',
 };
 
 export default function App() {
@@ -82,7 +85,7 @@ export default function App() {
   const [prefilledLookupAccountNo, setPrefilledLookupAccountNo] = useState<string | null>(null);
   const [deviceFrame, setDeviceFrame] = useState<DeviceFrame>('responsive');
   const [showGuideModal, setShowGuideModal] = useState(false);
-  const [showClearDataModal, setShowClearDataModal] = useState(false);
+  const [showResetDisplayModal, setShowResetDisplayModal] = useState(false);
 
   // Admin & Super Admin Role Authentication State
   const [adminRole, setAdminRole] = useState<AdminRole | null>(() => {
@@ -335,7 +338,7 @@ export default function App() {
     setShowAdminLoginModal(false);
     if (pendingAdminTargetTab) {
       // If target tab is Super Admin only and user logged in as regular admin, route to directory
-      if ((pendingAdminTargetTab === 'import_excel' || pendingAdminTargetTab === 'google_sheets') && role !== 'super_admin') {
+      if ((pendingAdminTargetTab === 'import_excel' || pendingAdminTargetTab === 'google_sheets' || pendingAdminTargetTab === 'gift_management') && role !== 'super_admin') {
         setActiveTab('directory');
       } else {
         setActiveTab(pendingAdminTargetTab);
@@ -387,7 +390,7 @@ export default function App() {
       ? 'Layak (Belum Dituntut)'
       : 'Belum Layak';
 
-    const now = new Date().toISOString().replace('T', ' ').slice(0, 16);
+    const now = getMalaysiaDateTime();
 
     const updatedAccountWithFlag: CustomerAccount = {
       ...updated,
@@ -469,8 +472,8 @@ export default function App() {
   };
 
   // Handle claiming/dispatching the 1-time reward for a customer
-  const handleClaimReward = (noAkaun: string) => {
-    const now = new Date().toISOString().replace('T', ' ').slice(0, 16);
+  const handleClaimReward = (noAkaun: string, giftName?: string, remainingStock?: number) => {
+    const now = getMalaysiaDateTime();
 
     const targetAccount = accounts.find((a) => a.noAkaun.toLowerCase() === noAkaun.toLowerCase());
     if (targetAccount) {
@@ -478,6 +481,8 @@ export default function App() {
         ...targetAccount,
         rewardStatus: 'Telah Dituntut',
         rewardClaimedAt: now,
+        rewardGiftName: giftName || targetAccount.rewardGiftName,
+        rewardGiftRemainingStock: typeof remainingStock === 'number' ? remainingStock : targetAccount.rewardGiftRemainingStock,
       };
       saveAccountToFirestore(updatedAcc).catch(console.warn);
     }
@@ -489,6 +494,8 @@ export default function App() {
             ...a,
             rewardStatus: 'Telah Dituntut',
             rewardClaimedAt: now,
+            rewardGiftName: giftName || a.rewardGiftName,
+            rewardGiftRemainingStock: typeof remainingStock === 'number' ? remainingStock : a.rewardGiftRemainingStock,
           };
         }
         return a;
@@ -503,6 +510,8 @@ export default function App() {
             rewardClaimed: true,
             rewardClaimedAt: now,
             rewardStatus: l.isRewardEligible ? 'Telah Dituntut' : l.rewardStatus,
+            rewardGiftName: giftName || l.rewardGiftName,
+            rewardGiftRemainingStock: typeof remainingStock === 'number' ? remainingStock : l.rewardGiftRemainingStock,
           };
           saveAuditLogToFirestore(updatedLog).catch(console.warn);
           return updatedLog;
@@ -558,47 +567,94 @@ export default function App() {
     handleImportAccountsWithMode(imported, 'merge');
   };
 
-  // Request Clear All Data (Open Modal) - RESTRICTED TO SUPER ADMIN ONLY
-  const handleRequestClearAllData = () => {
+  // Request Reset Display Records (Open Modal) - RESTRICTED TO SUPER ADMIN ONLY
+  const handleRequestResetDisplay = () => {
     if (!isSuperAdmin) {
-      showError('Akses Ditolak', 'Fungsi Kosongkan Data hanya boleh dilaksanakan oleh Super Admin sahaja.');
+      showError('Akses Ditolak', 'Fungsi Reset Rekod Dipaparan hanya boleh dilaksanakan oleh Super Admin sahaja.');
       handleOpenAdminLogin('import_excel');
       return;
     }
-    setShowClearDataModal(true);
+    setShowResetDisplayModal(true);
   };
 
-  // Confirm and Execute Clear All Data
-  const handleConfirmClearAllData = async () => {
+  // Confirm and Execute Selective Display Reset (WITHOUT deleting from Cloud Database)
+  const handleConfirmResetDisplay = (selectedSections: ResetSectionKey[]) => {
     if (!isSuperAdmin) {
-      showError('Akses Ditolak', 'Fungsi Kosongkan Data hanya boleh dilaksanakan oleh Super Admin sahaja.');
+      showError('Akses Ditolak', 'Fungsi Reset Rekod Dipaparan hanya boleh dilaksanakan oleh Super Admin sahaja.');
       handleOpenAdminLogin('import_excel');
       return;
     }
 
-    try {
-      // 1. Mark as explicitly initialized/cleared so it never auto-seeds sample demo accounts
-      localStorage.setItem(STORAGE_DB_INITIALIZED_KEY, 'true');
-      localStorage.setItem(STORAGE_ACCOUNTS_KEY, JSON.stringify([]));
-      localStorage.setItem(STORAGE_AUDIT_LOGS_KEY, JSON.stringify([]));
-      await clearAllIDB();
+    if (selectedSections.length === 0) {
+      showWarning('Tiada Pilihan', 'Sila pilih sekurang-kurangnya satu bahagian paparan untuk di-reset.');
+      return;
+    }
 
-      // 2. Clear in-memory local state
+    const resetLabels: string[] = [];
+    const shouldResetDirectory = selectedSections.includes('directory');
+    const shouldResetAudit = selectedSections.includes('audit_logs');
+    const shouldResetSpreadsheet = selectedSections.includes('spreadsheet');
+
+    if (shouldResetDirectory || shouldResetSpreadsheet) {
       setAccounts([]);
-      setAuditLogs([]);
+      try {
+        localStorage.setItem(STORAGE_ACCOUNTS_KEY, JSON.stringify([]));
+        localStorage.setItem(STORAGE_DB_INITIALIZED_KEY, 'true');
+      } catch {}
+      if (shouldResetDirectory) resetLabels.push('Direktori Akaun');
+      if (shouldResetSpreadsheet) resetLabels.push('Helaian Data');
+    }
 
-      // 3. Clear Cloud Firestore
-      await clearAllAccountsInFirestore();
-      await clearAllAuditLogsInFirestore();
+    if (shouldResetAudit) {
+      setAuditLogs([]);
+      try {
+        localStorage.setItem(STORAGE_AUDIT_LOGS_KEY, JSON.stringify([]));
+      } catch {}
+      resetLabels.push('Log Audit');
+    }
+
+    showSuccess(
+      'Reset Rekod Dipaparan Berjaya',
+      `Paparan bagi [${resetLabels.join(', ')}] telah berjaya ditetapkan semula. Data pangkalan data awan (Firestore) kekal selamat.`
+    );
+  };
+
+  // Reload records from Cloud Firestore without deleting anything
+  const handleReloadFromCloud = async () => {
+    try {
+      const [cloudAccounts, cloudLogs] = await Promise.all([
+        fetchAccountsFromFirestore(),
+        fetchAuditLogsFromFirestore(),
+      ]);
+
+      let loadedAccountsCount = 0;
+      let loadedLogsCount = 0;
+
+      if (cloudAccounts && cloudAccounts.length > 0) {
+        setAccounts(cloudAccounts);
+        loadedAccountsCount = cloudAccounts.length;
+        saveAccountsToIDB(cloudAccounts).catch(() => {});
+        try {
+          localStorage.setItem(STORAGE_ACCOUNTS_KEY, JSON.stringify(cloudAccounts));
+        } catch {}
+      }
+
+      if (cloudLogs && cloudLogs.length > 0) {
+        setAuditLogs(cloudLogs);
+        loadedLogsCount = cloudLogs.length;
+        saveAuditLogsToIDB(cloudLogs).catch(() => {});
+        try {
+          localStorage.setItem(STORAGE_AUDIT_LOGS_KEY, JSON.stringify(cloudLogs));
+        } catch {}
+      }
 
       showSuccess(
-        'Pangkalan Data Dikosongkan',
-        'Semua rekod akaun dan log audit telah berjaya dikosongkan daripada pangkalan data awan & tempatan.'
+        'Muat Semula Dari Awan Berjaya',
+        `Sebanyak ${loadedAccountsCount} akaun dan ${loadedLogsCount} log audit telah dimuat semula dari pangkalan data awan ke paparan skrin.`
       );
     } catch (err: any) {
-      console.error('Error during clear data:', err);
-      showError('Ralat Mengosongkan Data', err?.message || 'Gagal memadam sebahagian data pada pangkalan data awan.');
-      throw err;
+      console.warn('Reload from cloud warning:', err);
+      showWarning('Peringatan Muat Semula', 'Pangkalan data awan beroperasi dalam mod storan selamat.');
     }
   };
 
@@ -774,7 +830,7 @@ export default function App() {
               setPrefilledLookupAccountNo(noAkaun);
               setActiveTab('lookup');
             }}
-            onClearAllAccounts={handleRequestClearAllData}
+            onClearAllAccounts={handleRequestResetDisplay}
             isSuperAdmin={isSuperAdmin}
             onRequireSuperAdmin={() => handleOpenAdminLogin('import_excel')}
           />
@@ -789,7 +845,7 @@ export default function App() {
             }}
             onAddAccount={handleAddAccount}
             onImportAccounts={handleImportAccounts}
-            onClearAllAccounts={handleRequestClearAllData}
+            onClearAllAccounts={handleRequestResetDisplay}
             onClaimReward={handleClaimReward}
             isSuperAdmin={isSuperAdmin}
             onRequireSuperAdmin={() => handleOpenAdminLogin('import_excel')}
@@ -804,6 +860,9 @@ export default function App() {
               setActiveTab('lookup');
             }}
             onClaimReward={handleClaimReward}
+            onResetDisplay={handleRequestResetDisplay}
+            isSuperAdmin={isSuperAdmin}
+            onRequireSuperAdmin={() => handleOpenAdminLogin('import_excel')}
           />
         );
       case 'spreadsheet':
@@ -812,7 +871,7 @@ export default function App() {
             accounts={accounts}
             onUpdateAccount={handleUpdateAccount}
             onImportAccounts={handleImportAccounts}
-            onClearAllAccounts={handleRequestClearAllData}
+            onClearAllAccounts={handleRequestResetDisplay}
             isSuperAdmin={isSuperAdmin}
             onRequireSuperAdmin={() => handleOpenAdminLogin('import_excel')}
           />
@@ -829,6 +888,10 @@ export default function App() {
             }}
           />
         );
+      case 'gift_management':
+        return (
+          <GiftManagementSection />
+        );
       default:
         return null;
     }
@@ -838,7 +901,7 @@ export default function App() {
     if (tab === 'lookup') {
       setPrefilledLookupAccountNo(null);
       setActiveTab(tab);
-    } else if (tab === 'import_excel' || tab === 'google_sheets') {
+    } else if (tab === 'import_excel' || tab === 'google_sheets' || tab === 'gift_management') {
       if (isSuperAdmin) {
         setActiveTab(tab);
       } else {
@@ -893,7 +956,7 @@ export default function App() {
             {/* Screen */}
             <div className="bg-[#FAF8F5] rounded-[26px] overflow-hidden min-h-[720px] max-h-[820px] flex flex-col shadow-inner border border-stone-200/60">
               <div className="p-3 bg-white/90 backdrop-blur-xs border-b border-stone-200 flex justify-between items-center text-[10px] font-semibold text-stone-500">
-                <span>9:41 AM</span>
+                <span className="font-mono">{getMalaysiaTime()} (MYT)</span>
                 <span className="font-mono text-stone-900 tracking-wider uppercase text-[9px] font-bold">eKemaskini</span>
                 <span>100% 🔋</span>
               </div>
@@ -967,34 +1030,20 @@ export default function App() {
                 <span className="text-purple-900 font-bold flex items-center gap-1 bg-purple-100 px-2 py-0.5 rounded-full border border-purple-300 text-[11px]">
                   <Crown className="w-3 h-3 text-amber-500" /> Sesi Super Admin Aktif
                 </span>
-                {accounts.length > 0 && (
-                  <>
-                    <span className="text-stone-300">•</span>
-                    <button 
-                      onClick={handleRequestClearAllData} 
-                      className="hover:text-red-700 transition-colors cursor-pointer text-stone-500 hover:underline"
-                    >
-                      Kosongkan Data ({accounts.length})
-                    </button>
-                  </>
-                )}
+                <span className="text-stone-300">•</span>
+                <button 
+                  onClick={handleRequestResetDisplay} 
+                  className="hover:text-purple-900 transition-colors cursor-pointer text-stone-600 font-medium hover:underline"
+                  title="Tetapkan semula paparan skrin tanpa memadam pangkalan data awan"
+                >
+                  Reset Rekod Dipaparan
+                </button>
               </div>
             ) : isAdmin ? (
               <div className="flex items-center gap-2">
                 <span className="text-emerald-700 font-semibold flex items-center gap-1">
                   ● Sesi Admin Aktif
                 </span>
-                {accounts.length > 0 && (
-                  <>
-                    <span className="text-stone-300">•</span>
-                    <button 
-                      onClick={handleRequestClearAllData} 
-                      className="hover:text-red-700 transition-colors cursor-pointer text-stone-500 hover:underline"
-                    >
-                      Kosongkan Data ({accounts.length})
-                    </button>
-                  </>
-                )}
               </div>
             ) : (
               <button 
@@ -1032,13 +1081,15 @@ export default function App() {
         />
       )}
 
-      {/* Super Admin Clear Data Modal */}
-      <ClearDataModal
-        isOpen={showClearDataModal}
-        onClose={() => setShowClearDataModal(false)}
-        onConfirm={handleConfirmClearAllData}
+      {/* Super Admin Reset Display Records Modal */}
+      <ResetDisplayModal
+        isOpen={showResetDisplayModal}
+        onClose={() => setShowResetDisplayModal(false)}
+        onConfirmReset={handleConfirmResetDisplay}
         accountCount={accounts.length}
         auditLogCount={auditLogs.length}
+        onReloadFromCloud={handleReloadFromCloud}
+        isSuperAdmin={isSuperAdmin}
       />
     </div>
   );

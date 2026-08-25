@@ -8,6 +8,8 @@
  * 5. Security Incident Logging
  */
 
+import { getMalaysiaDateTimeFull } from './dateHelper';
+
 export interface SecurityIncident {
   id: string;
   timestamp: string;
@@ -257,7 +259,7 @@ const STORAGE_SECURITY_LOGS_KEY = 'ekemaskini_security_incident_logs';
 export function logSecurityIncident(incident: Omit<SecurityIncident, 'id' | 'timestamp'>) {
   const newEntry: SecurityIncident = {
     id: `sec_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
-    timestamp: new Date().toISOString().replace('T', ' ').slice(0, 19),
+    timestamp: getMalaysiaDateTimeFull(),
     ...incident,
   };
 

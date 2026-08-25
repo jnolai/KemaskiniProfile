@@ -17,10 +17,12 @@ import {
   ChevronsRight,
   Zap,
   Trash2,
-  Crown
+  Crown,
+  RotateCcw
 } from 'lucide-react';
 import { CustomerAccount } from '../types';
 import { exportAccountsToExcel, parseAccountsExcel, downloadExcelTemplate } from '../utils/excelHelper';
+import { getMalaysiaDateTime } from '../utils/dateHelper';
 import { useToast } from '../context/ToastContext';
 import { buildAccountSearchIndex, fastFilterDirectory } from '../utils/searchEngine';
 import { ExcelTemplateModal } from './ExcelTemplateModal';
@@ -101,7 +103,7 @@ export const CustomerSpreadsheetView: React.FC<CustomerSpreadsheetViewProps> = (
         ...acc,
         [field]: trimmed,
         telahDikemaskini: true,
-        lastUpdated: new Date().toISOString().replace('T', ' ').slice(0, 16),
+        lastUpdated: getMalaysiaDateTime(),
         kemaskiniOleh: 'Spreadsheet Editor',
       };
       onUpdateAccount(updated, [field === 'noTel' ? 'No Telefon' : 'Alamat Email'], oldPhone, oldEmail);
@@ -194,17 +196,17 @@ export const CustomerSpreadsheetView: React.FC<CustomerSpreadsheetViewProps> = (
               <Download className="w-4 h-4" />
               <span>Muat Turun .XLSX</span>
             </button>
-            {accounts.length > 0 && onClearAllAccounts && (
+            {onClearAllAccounts && (
               isSuperAdmin ? (
                 <button
                   onClick={onClearAllAccounts}
-                  className="px-3 py-2 bg-red-50 hover:bg-red-100 text-red-700 rounded-xl text-xs font-semibold border border-red-200 transition-colors cursor-pointer flex items-center gap-1.5 shadow-2xs"
-                  title="Padam semua data akaun & log audit (Akses Khas Super Admin)"
+                  className="px-3 py-2 bg-purple-50 hover:bg-purple-100 text-purple-950 rounded-xl text-xs font-semibold border border-purple-300 transition-colors cursor-pointer flex items-center gap-1.5 shadow-2xs"
+                  title="Reset rekod pada paparan skrin tanpa memadam pangkalan data awan (Akses Khas Super Admin)"
                 >
-                  <Trash2 className="w-3.5 h-3.5 text-red-600" />
-                  <span>Kosongkan Data ({accounts.length.toLocaleString()})</span>
-                  <span className="text-[9px] bg-red-100/90 text-red-800 border border-red-200 px-1.5 py-0.5 rounded font-mono font-bold uppercase tracking-wider flex items-center gap-1">
-                    <Crown className="w-2.5 h-2.5 text-amber-600" />
+                  <RotateCcw className="w-3.5 h-3.5 text-purple-900" />
+                  <span>Reset Rekod Dipaparan</span>
+                  <span className="text-[9px] bg-amber-200 text-purple-950 border border-amber-300 px-1.5 py-0.5 rounded font-mono font-bold uppercase tracking-wider flex items-center gap-1">
+                    <Crown className="w-2.5 h-2.5 text-purple-950" />
                     Super Admin
                   </span>
                 </button>
@@ -216,15 +218,15 @@ export const CustomerSpreadsheetView: React.FC<CustomerSpreadsheetViewProps> = (
                     } else {
                       showWarning(
                         'Akses Super Admin Diperlukan',
-                        'Fungsi Kosongkan Data hanya boleh dilaksanakan oleh Super Admin sahaja.'
+                        'Fungsi Reset Rekod Dipaparan hanya boleh dilaksanakan oleh Super Admin sahaja.'
                       );
                     }
                   }}
                   className="px-3 py-2 bg-stone-100 hover:bg-stone-200 text-stone-600 rounded-xl text-xs font-semibold border border-stone-300 transition-colors cursor-pointer flex items-center gap-1.5 opacity-85 shadow-2xs"
-                  title="Fungsi Kosongkan Data dikunci — Sila sahkan kata laluan Super Admin"
+                  title="Fungsi Reset Rekod Dipaparan dikunci — Sila sahkan kata laluan Super Admin"
                 >
                   <Lock className="w-3.5 h-3.5 text-stone-500" />
-                  <span>Kosongkan Data</span>
+                  <span>Reset Rekod Dipaparan</span>
                   <Crown className="w-3 h-3 text-amber-500" />
                 </button>
               )

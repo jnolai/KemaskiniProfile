@@ -1,42 +1,43 @@
 import * as XLSX from 'xlsx';
 import { CustomerAccount, ProfileUpdateAuditLog } from '../types';
+import { getMalaysiaDate, getMalaysiaDateTime } from './dateHelper';
 
 export const STANDARD_TEMPLATE_SAMPLE_DATA = [
   {
     'No Akaun': 'ACC-100234',
     'Nama Pemilik': 'Ahmad bin Abdullah',
     'No Kad Pengenalan': '880112-14-5543',
-    'No Handphone': '012-3456789',
-    'Emel Pemilik/Wakil': 'ahmad.abdullah@email.com',
+    'No Telefon': '012-3456789',
+    'Alamat EMail': 'ahmad.abdullah@email.com',
     'Kategori Akaun': 'Kediaman',
-    'Status': 'Aktif',
+    'Status Akaun': 'Aktif',
   },
   {
     'No Akaun': 'ACC-100235',
     'Nama Pemilik': 'Siti Nurhaliza binti Tarudin',
     'No Kad Pengenalan': '900523-10-5892',
-    'No Handphone': '019-8765432',
-    'Emel Pemilik/Wakil': 'siti.nurhaliza@email.com',
+    'No Telefon': '019-8765432',
+    'Alamat EMail': 'siti.nurhaliza@email.com',
     'Kategori Akaun': 'Kediaman',
-    'Status': 'Aktif',
+    'Status Akaun': 'Aktif',
   },
   {
     'No Akaun': 'ACC-100236',
     'Nama Pemilik': 'Tan Wei Lun',
     'No Kad Pengenalan': '850314-08-6115',
-    'No Handphone': '016-2233445',
-    'Emel Pemilik/Wakil': 'weilun.tan@email.com',
+    'No Telefon': '016-2233445',
+    'Alamat EMail': 'weilun.tan@email.com',
     'Kategori Akaun': 'Komersial',
-    'Status': 'Tertunggak',
+    'Status Akaun': 'Tertunggak',
   },
   {
     'No Akaun': 'ACC-100237',
     'Nama Pemilik': 'Kavitha a/p Ramasamy',
     'No Kad Pengenalan': '921108-02-5324',
-    'No Handphone': '017-9988776',
-    'Emel Pemilik/Wakil': 'kavitha.ramasamy@email.com',
+    'No Telefon': '017-9988776',
+    'Alamat EMail': 'kavitha.ramasamy@email.com',
     'Kategori Akaun': 'Kediaman',
-    'Status': 'Aktif',
+    'Status Akaun': 'Aktif',
   },
 ];
 
@@ -53,10 +54,10 @@ export function downloadExcelTemplate(format: 'xlsx' | 'csv' = 'xlsx') {
     { wch: 16 }, // No Akaun
     { wch: 28 }, // Nama Pemilik
     { wch: 20 }, // No Kad Pengenalan
-    { wch: 18 }, // No Handphone
-    { wch: 28 }, // Emel Pemilik/Wakil
+    { wch: 18 }, // No Telefon
+    { wch: 28 }, // Alamat EMail
     { wch: 16 }, // Kategori Akaun
-    { wch: 14 }, // Status
+    { wch: 16 }, // Status Akaun
   ];
 
   const workbook = XLSX.utils.book_new();
@@ -98,34 +99,53 @@ export function exportAccountsToExcel(
       });
       // Append tracking info
       rowObj['Status Kemaskini'] = acc.telahDikemaskini ? 'TELAH DIKEMASKINI' : 'REKOD ASAL';
-      rowObj['Kemaskini Terakhir'] = acc.lastUpdated;
+      rowObj['Kemaskini_Terakhir'] = acc.lastUpdated;
       return rowObj;
     });
   } else {
-    // Standard template columns
+    // Standard template columns matching exact Super Admin requirements
     rows = accounts.map((acc) => ({
       'No Akaun': acc.noAkaun,
-      'Nama Pemilik': acc.nama,
+      'Nama Pelanggan': acc.nama,
       'No Kad Pengenalan': acc.kadPengenalan,
-      'No Handphone': acc.noTel,
-      'Emel Pemilik/Wakil': acc.email,
+      'No Telefon': acc.noTel,
+      'Alamat Email': acc.email,
       'Kategori Akaun': acc.kategoriAkaun || 'Kediaman',
-      'Status': acc.status,
+      'Status Akaun': acc.status,
       'Status Kemaskini': acc.telahDikemaskini ? 'TELAH DIKEMASKINI' : 'REKOD ASAL',
-      'Status Hadiah (1x Sahaja)': acc.rewardStatus || 'Belum Layak',
-      'Kod Hadiah': acc.rewardCode || '-',
-      'Tarikh Hadiah Dituntut': acc.rewardClaimedAt || '-',
-      'Tarikh Pendaftaran': acc.tarikhDaftar || '-',
-      'Kemaskini Terakhir': acc.lastUpdated,
-      'Dikemaskini Oleh': acc.kemaskiniOleh || 'Pelanggan',
+      'Status_Hadiah': acc.rewardStatus || 'Belum Layak',
+      'Kod_Hadiah': acc.rewardCode || '-',
+      'Tarikh_Hadiah_Dituntut': acc.rewardClaimedAt || '-',
+      'Tarikh_Pendaftaran': acc.tarikhDaftar || '-',
+      'Kemaskini_Terakhir': acc.lastUpdated,
+      'Dikemaskini_Oleh': acc.kemaskiniOleh || 'Pelanggan',
     }));
   }
 
   const worksheet = XLSX.utils.json_to_sheet(rows);
+
+  // Set professional column widths
+  worksheet['!cols'] = [
+    { wch: 18 }, // No Akaun
+    { wch: 30 }, // Nama Pelanggan
+    { wch: 20 }, // No Kad Pengenalan
+    { wch: 18 }, // No Telefon
+    { wch: 30 }, // Alamat Email
+    { wch: 16 }, // Kategori Akaun
+    { wch: 16 }, // Status Akaun
+    { wch: 20 }, // Status Kemaskini
+    { wch: 25 }, // Status_Hadiah
+    { wch: 16 }, // Kod_Hadiah
+    { wch: 22 }, // Tarikh_Hadiah_Dituntut
+    { wch: 20 }, // Tarikh_Pendaftaran
+    { wch: 22 }, // Kemaskini_Terakhir
+    { wch: 22 }, // Dikemaskini_Oleh
+  ];
+
   const workbook = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(workbook, worksheet, 'Akaun Pelanggan');
 
-  const fileName = `Pangkalan_Data_Pelanggan_${new Date().toISOString().slice(0, 10)}.${format}`;
+  const fileName = `Pangkalan_Data_Pelanggan_${getMalaysiaDate()}.${format}`;
   XLSX.writeFile(workbook, fileName, { bookType: format });
 }
 
@@ -243,6 +263,8 @@ export function exportAuditLogsToExcel(logs: ProfileUpdateAuditLog[]) {
     'Ruangan Diubah': log.changedFields.join(', '),
     'Kelayakan Hadiah (1x Sahaja)': log.isRewardEligible ? 'LAYAK HADIAH (KALI PERTAMA)' : (log.rewardStatus || '-'),
     'Status Penebusan Hadiah': (log.rewardClaimed || log.rewardStatus === 'Telah Dituntut') ? 'TELAH DISERAHKAN / DITUNTUT' : (log.isRewardEligible ? 'BELUM DITUNTUT' : 'KEMASKINI ULANGAN'),
+    'Jenis Hadiah Diserah': log.rewardGiftName || '-',
+    'Baki Stok Semasa Diserah': typeof log.rewardGiftRemainingStock === 'number' ? `${log.rewardGiftRemainingStock} unit` : '-',
     'Kod Baucar Hadiah': log.rewardCode || `GIFT-${log.noAkaun}`,
     'Tarikh Penyerahan Hadiah': log.rewardClaimedAt || '-',
     'Saluran / Sumber': log.source,
@@ -252,7 +274,7 @@ export function exportAuditLogsToExcel(logs: ProfileUpdateAuditLog[]) {
   const workbook = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(workbook, worksheet, 'Log Kemaskini & Hadiah');
 
-  const fileName = `Audit_Log_Kemaskini_Dan_Hadiah_Pelanggan_${new Date().toISOString().slice(0, 10)}.xlsx`;
+  const fileName = `Audit_Log_Kemaskini_Dan_Hadiah_Pelanggan_${getMalaysiaDate()}.xlsx`;
   XLSX.writeFile(workbook, fileName);
 }
 
@@ -394,8 +416,8 @@ export async function parseAccountsExcel(
         const rawAccounts: CustomerAccount[] = [];
         let primaryDetectedColumns: string[] = [];
         let totalRowsAcrossAllSheets = 0;
-        const nowIso = new Date().toISOString().replace('T', ' ').slice(0, 16);
-        const todayDate = nowIso.slice(0, 10);
+        const nowIso = getMalaysiaDateTime();
+        const todayDate = getMalaysiaDate();
         let globalRowIndex = 0;
 
         for (let sIdx = 0; sIdx < workbook.SheetNames.length; sIdx++) {
@@ -473,7 +495,7 @@ export async function parseAccountsExcel(
           }
 
           if (sheetColumns.length === 0) {
-            sheetColumns = ['No Akaun', 'Nama Pemilik', 'No Kad Pengenalan', 'No Handphone', 'Emel Pemilik/Wakil', 'Kategori Akaun', 'Status'];
+            sheetColumns = ['No Akaun', 'Nama Pemilik', 'No Kad Pengenalan', 'No Telefon', 'Alamat EMail', 'Kategori Akaun', 'Status Akaun'];
           }
 
           if (primaryDetectedColumns.length === 0) {

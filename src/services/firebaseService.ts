@@ -14,6 +14,7 @@ import {
 } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { CustomerAccount, ProfileUpdateAuditLog, GoogleSheetsConfig } from '../types';
+import { getMalaysiaDateTime, getMalaysiaDateTimeFull } from '../utils/dateHelper';
 
 const ACCOUNTS_COLLECTION = 'accounts';
 const AUDIT_LOGS_COLLECTION = 'audit_logs';
@@ -68,7 +69,7 @@ export function sanitizeAccountForFirestore(account: CustomerAccount): Record<st
     status: account.status || 'Aktif',
     noTel: String(account.noTel || ''),
     email: String(account.email || ''),
-    lastUpdated: account.lastUpdated || new Date().toISOString(),
+    lastUpdated: account.lastUpdated || getMalaysiaDateTime(),
     telahDikemaskini: Boolean(account.telahDikemaskini),
   };
 
@@ -81,6 +82,8 @@ export function sanitizeAccountForFirestore(account: CustomerAccount): Record<st
   if (account.rewardClaimedAt) clean.rewardClaimedAt = String(account.rewardClaimedAt);
   if (account.rewardEligibilityDate) clean.rewardEligibilityDate = String(account.rewardEligibilityDate);
   if (account.rewardCode) clean.rewardCode = String(account.rewardCode);
+  if (account.rewardGiftName) clean.rewardGiftName = String(account.rewardGiftName);
+  if (typeof account.rewardGiftRemainingStock === 'number') clean.rewardGiftRemainingStock = account.rewardGiftRemainingStock;
   if (typeof account.updateCount === 'number') clean.updateCount = account.updateCount;
 
   return clean;
@@ -99,7 +102,7 @@ export function sanitizeAuditLogForFirestore(log: ProfileUpdateAuditLog): Record
     oldEmail: String(log.oldEmail || ''),
     newEmail: String(log.newEmail || ''),
     changedFields: Array.isArray(log.changedFields) ? log.changedFields : [],
-    timestamp: log.timestamp || new Date().toISOString(),
+    timestamp: log.timestamp || getMalaysiaDateTimeFull(),
     source: log.source || 'Portal Pelanggan',
     isRewardEligible: Boolean(log.isRewardEligible),
     rewardStatus: log.rewardStatus || 'Tidak Berkaitan',
@@ -108,6 +111,8 @@ export function sanitizeAuditLogForFirestore(log: ProfileUpdateAuditLog): Record
   if (log.rewardCode) clean.rewardCode = String(log.rewardCode);
   if (typeof log.rewardClaimed === 'boolean') clean.rewardClaimed = log.rewardClaimed;
   if (log.rewardClaimedAt) clean.rewardClaimedAt = String(log.rewardClaimedAt);
+  if (log.rewardGiftName) clean.rewardGiftName = String(log.rewardGiftName);
+  if (typeof log.rewardGiftRemainingStock === 'number') clean.rewardGiftRemainingStock = log.rewardGiftRemainingStock;
 
   return clean;
 }
@@ -291,7 +296,7 @@ export async function saveCustomColumnsToFirestore(customColumns: string[]): Pro
     const docRef = doc(db, APP_CONFIG_COLLECTION, 'excel_meta');
     await setDoc(docRef, {
       customColumns,
-      lastUpdated: new Date().toISOString(),
+      lastUpdated: getMalaysiaDateTime(),
     }, { merge: true });
   } catch (err: any) {
     checkAndMarkQuotaError(err);
@@ -645,8 +650,8 @@ export async function saveGoogleSheetsConfigToFirestore(config: GoogleSheetsConf
       autoSyncOnUpdate: Boolean(config.autoSyncOnUpdate),
       isConnected: Boolean(config.isConnected),
       authMethod: config.authMethod || 'shared_link',
-      lastSyncTime: config.lastSyncTime || new Date().toISOString().replace('T', ' ').slice(0, 16),
-      updatedAt: new Date().toISOString(),
+      lastSyncTime: config.lastSyncTime || getMalaysiaDateTime(),
+      updatedAt: getMalaysiaDateTimeFull(),
     };
 
     if (config.totalSyncedRows !== undefined) cleanConfig.totalSyncedRows = config.totalSyncedRows;

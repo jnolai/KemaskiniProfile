@@ -1,38 +1,93 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { 
   History, 
   Search, 
   FileSpreadsheet, 
   ArrowRight, 
-  Phone, 
-  Mail, 
   Clock, 
-  ShieldCheck,
-  CheckCircle2,
-  Filter,
-  Gift,
-  Award,
-  Sparkles,
-  Check,
-  Tag,
-  AlertCircle
+  CheckCircle2, 
+  Gift, 
+  Sparkles, 
+  Check, 
+  Tag, 
+  Package, 
+  X, 
+  AlertCircle,
+  Layers,
+  ChevronRight,
+  Info,
+  RotateCcw,
+  Crown,
+  Lock
 } from 'lucide-react';
-import { ProfileUpdateAuditLog } from '../types';
+import { ProfileUpdateAuditLog, GiftItem } from '../types';
 import { exportAuditLogsToExcel } from '../utils/excelHelper';
 import { useToast } from '../context/ToastContext';
+import { 
+  getStoredGifts, 
+  subscribeToGifts, 
+  deductGiftStock, 
+  INITIAL_SAMPLE_GIFTS,
+  saveGiftsLocally
+} from '../services/giftService';
+import { GiftClaimModal } from './GiftClaimModal';
 
 interface AuditLogsViewProps {
   logs: ProfileUpdateAuditLog[];
   onSelectAccount?: (noAkaun: string) => void;
-  onClaimReward?: (noAkaun: string) => void;
+  onClaimReward?: (noAkaun: string, giftName?: string, remainingStock?: number) => void;
+  onResetDisplay?: () => void;
+  isSuperAdmin?: boolean;
+  onRequireSuperAdmin?: () => void;
 }
 
-export const AuditLogsView: React.FC<AuditLogsViewProps> = ({ logs, onSelectAccount, onClaimReward }) => {
-  const { showSuccess, showError, showWarning, showInfo } = useToast();
+export const AuditLogsView: React.FC<AuditLogsViewProps> = ({ 
+  logs, 
+  onSelectAccount, 
+  onClaimReward,
+  onResetDisplay,
+  isSuperAdmin = false,
+  onRequireSuperAdmin
+}) => {
+  const { showSuccess, showWarning, showInfo } = useToast();
   const [searchQuery, setSearchQuery] = useState('');
   const [sourceFilter, setSourceFilter] = useState('Semua');
   const [rewardFilter, setRewardFilter] = useState('Semua');
   const [rewardClaimSuccessMsg, setRewardClaimSuccessMsg] = useState<string | null>(null);
+
+  // 🎁 Real-time Gift Inventory from Pengurusan Hadiah
+  const [giftList, setGiftList] = useState<GiftItem[]>(() => getStoredGifts());
+  
+  // 🎁 Modal state for choosing Gift when clicking "Tanda Hadiah Diberi"
+  const [activeClaimLog, setActiveClaimLog] = useState<ProfileUpdateAuditLog | null>(null);
+  const [selectedGiftId, setSelectedGiftId] = useState<string>('');
+  const [customGiftName, setCustomGiftName] = useState<string>('');
+  const [isSubmittingClaim, setIsSubmittingClaim] = useState(false);
+
+  // Subscribe to real-time gift inventory changes
+  useEffect(() => {
+    const unsubscribe = subscribeToGifts((gifts) => {
+      setGiftList(gifts);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  // Set default selected gift when modal opens
+  useEffect(() => {
+    if (activeClaimLog) {
+      if (giftList.length > 0) {
+        // Pick first gift that has stock, or first gift
+        const available = giftList.find((g) => {
+          const baki = g.bakiSemasa !== undefined ? Number(g.bakiSemasa) : (Number(g.kuantitiAsal) || Number(g.kuantiti) || 0);
+          return baki > 0;
+        }) || giftList[0];
+        setSelectedGiftId(available ? available.id : 'custom');
+      } else {
+        setSelectedGiftId('custom');
+      }
+      setCustomGiftName('');
+    }
+  }, [activeClaimLog, giftList]);
 
   // Calculate Reward & Log Statistics
   const stats = useMemo(() => {
@@ -44,13 +99,20 @@ export const AuditLogsView: React.FC<AuditLogsViewProps> = ({ logs, onSelectAcco
     const uniqueClaimedAccounts = new Set(claimedLogs.map((l) => l.noAkaun)).size;
     const pendingRewards = Math.max(0, uniqueEligibleAccounts - uniqueClaimedAccounts);
 
+    const totalGiftInventoryStock = giftList.reduce((sum, g) => {
+      const initial = Number(g.kuantitiAsal) || Number(g.kuantiti) || 0;
+      const baki = g.bakiSemasa !== undefined ? Number(g.bakiSemasa) : initial;
+      return sum + baki;
+    }, 0);
+
     return {
       totalLogs,
       uniqueEligibleAccounts,
       uniqueClaimedAccounts,
       pendingRewards,
+      totalGiftInventoryStock,
     };
-  }, [logs]);
+  }, [logs, giftList]);
 
   const filteredLogs = useMemo(() => {
     const q = searchQuery.toLowerCase().trim();
@@ -61,7 +123,8 @@ export const AuditLogsView: React.FC<AuditLogsViewProps> = ({ logs, onSelectAcco
         log.nama.toLowerCase().includes(q) ||
         log.newPhone.toLowerCase().includes(q) ||
         log.newEmail.toLowerCase().includes(q) ||
-        (log.rewardCode && log.rewardCode.toLowerCase().includes(q));
+        (log.rewardCode && log.rewardCode.toLowerCase().includes(q)) ||
+        (log.rewardGiftName && log.rewardGiftName.toLowerCase().includes(q));
 
       const matchSource = sourceFilter === 'Semua' || log.source === sourceFilter;
 
@@ -78,17 +141,33 @@ export const AuditLogsView: React.FC<AuditLogsViewProps> = ({ logs, onSelectAcco
     });
   }, [logs, searchQuery, sourceFilter, rewardFilter]);
 
-  const handleClaim = (noAkaun: string, nama: string) => {
+  // Open the Gift Selection Modal
+  const handleOpenClaimModal = (log: ProfileUpdateAuditLog) => {
+    setActiveClaimLog(log);
+  };
+
+  // Close Modal
+  const handleCloseClaimModal = () => {
+    setActiveClaimLog(null);
+    setSelectedGiftId('');
+    setCustomGiftName('');
+  };
+
+  // Confirm Claim with chosen Gift
+  const handleConfirmClaimWithGift = async (noAkaun: string, giftName: string, remainingStock: number) => {
     if (onClaimReward) {
-      onClaimReward(noAkaun);
-      const msg = `✅ Hadiah penghargaan untuk akaun ${noAkaun} (${nama}) berjaya ditandakan sebagai Telah Diserahkan.`;
-      setRewardClaimSuccessMsg(msg);
-      showSuccess(
-        'Penyerahan Hadiah Disahkan',
-        `Hadiah penghargaan untuk akaun ${noAkaun} (${nama}) telah ditandakan sebagai diserah / ditebus.`
-      );
-      setTimeout(() => setRewardClaimSuccessMsg(null), 4000);
+      onClaimReward(noAkaun, giftName, remainingStock);
     }
+
+    const msg = `✅ Hadiah "${giftName}" berjaya diserahkan kepada akaun ${noAkaun}. Baki stok hadiah ini: ${remainingStock} unit.`;
+    setRewardClaimSuccessMsg(msg);
+    showSuccess(
+      'Penyerahan Hadiah Disahkan & Direkodkan',
+      `Jenis Hadiah: "${giftName}" | Baki Stok Semasa: ${remainingStock} unit`
+    );
+
+    setTimeout(() => setRewardClaimSuccessMsg(null), 5000);
+    handleCloseClaimModal();
   };
 
   const handleExportLogs = () => {
@@ -99,6 +178,12 @@ export const AuditLogsView: React.FC<AuditLogsViewProps> = ({ logs, onSelectAcco
     exportAuditLogsToExcel(logs);
     showSuccess('Eksport Log Selesai', `Sebanyak ${logs.length} rekod audit log telah dieksport ke fail Excel (.xlsx).`);
   };
+
+  // Find currently selected gift object for modal preview
+  const currentSelectedGift = useMemo(() => {
+    if (!selectedGiftId || selectedGiftId === 'custom') return null;
+    return giftList.find((g) => g.id === selectedGiftId) || null;
+  }, [selectedGiftId, giftList]);
 
   return (
     <div className="space-y-4">
@@ -118,11 +203,11 @@ export const AuditLogsView: React.FC<AuditLogsViewProps> = ({ logs, onSelectAcco
               Log Kemaskini Profil & Rekod Hadiah Pelanggan
             </h2>
             <p className="text-xs text-stone-600 font-serif mt-1 max-w-2xl">
-              Setiap pelanggan yang berjaya mengemaskini maklumat profil layak menerima hadiah penghargaan (terhad 1 kali sahaja setiap akaun).
+              Setiap pelanggan yang berjaya mengemaskini maklumat profil layak menerima hadiah penghargaan (terhad 1 kali sahaja setiap akaun). Pilih jenis hadiah daripada bahagian <strong>Pengurusan Hadiah</strong> semasa penyerahan untuk mengemas kini baki stok secara automatik.
             </p>
           </div>
 
-          <div className="flex items-center gap-2 self-start md:self-auto shrink-0">
+          <div className="flex flex-wrap items-center gap-2 self-start md:self-auto shrink-0">
             <button
               onClick={handleExportLogs}
               disabled={logs.length === 0}
@@ -131,6 +216,42 @@ export const AuditLogsView: React.FC<AuditLogsViewProps> = ({ logs, onSelectAcco
               <FileSpreadsheet className="w-4 h-4 text-emerald-400" />
               <span>Eksport Laporan Hadiah & Log (.xlsx)</span>
             </button>
+
+            {onResetDisplay && (
+              isSuperAdmin ? (
+                <button
+                  onClick={onResetDisplay}
+                  className="px-3.5 py-2.5 bg-purple-50 hover:bg-purple-100 text-purple-950 rounded-xl text-xs font-semibold border border-purple-300 transition-colors cursor-pointer flex items-center gap-1.5 shadow-2xs"
+                  title="Reset rekod pada paparan skrin tanpa memadam pangkalan data awan (Akses Khas Super Admin)"
+                >
+                  <RotateCcw className="w-3.5 h-3.5 text-purple-900" />
+                  <span>Reset Rekod Dipaparan</span>
+                  <span className="text-[9px] bg-amber-200 text-purple-950 border border-amber-300 px-1.5 py-0.5 rounded font-mono font-bold uppercase tracking-wider flex items-center gap-1">
+                    <Crown className="w-2.5 h-2.5 text-purple-950" />
+                    Super Admin
+                  </span>
+                </button>
+              ) : (
+                <button
+                  onClick={() => {
+                    if (onRequireSuperAdmin) {
+                      onRequireSuperAdmin();
+                    } else {
+                      showWarning(
+                        'Akses Super Admin Diperlukan',
+                        'Fungsi Reset Rekod Dipaparan hanya boleh dilaksanakan oleh Super Admin sahaja.'
+                      );
+                    }
+                  }}
+                  className="px-3.5 py-2.5 bg-stone-100 hover:bg-stone-200 text-stone-600 rounded-xl text-xs font-semibold border border-stone-300 transition-colors cursor-pointer flex items-center gap-1.5 opacity-85 shadow-2xs"
+                  title="Fungsi Reset Rekod Dipaparan dikunci — Sila sahkan kata laluan Super Admin"
+                >
+                  <Lock className="w-3.5 h-3.5 text-stone-500" />
+                  <span>Reset Rekod Dipaparan</span>
+                  <Crown className="w-3 h-3 text-amber-500" />
+                </button>
+              )
+            )}
           </div>
         </div>
 
@@ -181,6 +302,69 @@ export const AuditLogsView: React.FC<AuditLogsViewProps> = ({ logs, onSelectAcco
           </div>
         </div>
 
+        {/* 🎁 Live Gift Inventory Summary Bar */}
+        <div className="mt-4 pt-3 border-t border-stone-200 bg-stone-50/70 p-3 rounded-xl border border-stone-200">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-2">
+            <div className="flex items-center gap-1.5 text-xs font-bold text-stone-900 font-serif-heading">
+              <Package className="w-3.5 h-3.5 text-purple-900" />
+              <span>Senarai Jenis Hadiah & Baki Stok Semasa (Pengurusan Hadiah):</span>
+            </div>
+            <span className="text-[11px] font-mono font-bold text-purple-950 bg-purple-100 px-2 py-0.5 rounded-md border border-purple-200">
+              Jumlah Baki Stok: {stats.totalGiftInventoryStock} unit
+            </span>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            {giftList.length === 0 ? (
+              <div className="flex items-center gap-2 text-stone-500 text-xs">
+                <Info className="w-3.5 h-3.5 text-amber-500" />
+                <span>Tiada hadiah didaftarkan dalam Pengurusan Hadiah.</span>
+                <button
+                  type="button"
+                  onClick={() => saveGiftsLocally(INITIAL_SAMPLE_GIFTS)}
+                  className="text-purple-900 underline font-semibold hover:text-purple-950 cursor-pointer"
+                >
+                  Muat Hadiah Contoh
+                </button>
+              </div>
+            ) : (
+              giftList.map((g) => {
+                const initialQty = Number(g.kuantitiAsal) || Number(g.kuantiti) || 0;
+                const bakiQty = g.bakiSemasa !== undefined ? Number(g.bakiSemasa) : initialQty;
+                const isOutOfStock = bakiQty <= 0;
+                const isLowStock = bakiQty > 0 && bakiQty <= 10;
+
+                return (
+                  <div
+                    key={g.id}
+                    className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-medium border transition-all ${
+                      isOutOfStock
+                        ? 'bg-rose-50 border-rose-200 text-rose-900'
+                        : isLowStock
+                        ? 'bg-amber-50 border-amber-200 text-amber-950'
+                        : 'bg-white border-stone-300 text-stone-900 shadow-2xs'
+                    }`}
+                  >
+                    <Gift className={`w-3 h-3 ${isOutOfStock ? 'text-rose-500' : isLowStock ? 'text-amber-500' : 'text-purple-700'}`} />
+                    <span className="font-semibold">{g.namaHadiah}</span>
+                    <span
+                      className={`font-mono text-[10px] font-bold px-1.5 py-0.2 rounded ${
+                        isOutOfStock
+                          ? 'bg-rose-200 text-rose-950'
+                          : isLowStock
+                          ? 'bg-amber-200 text-amber-950'
+                          : 'bg-stone-100 text-stone-800'
+                      }`}
+                    >
+                      {isOutOfStock ? 'Habis Stok (0)' : `Baki: ${bakiQty} unit`}
+                    </span>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </div>
+
         {/* Success Alert Notification */}
         {rewardClaimSuccessMsg && (
           <div className="mt-4 p-3 bg-emerald-50 border border-emerald-300 text-emerald-900 rounded-xl text-xs flex items-center gap-2 animate-in fade-in">
@@ -197,7 +381,7 @@ export const AuditLogsView: React.FC<AuditLogsViewProps> = ({ logs, onSelectAcco
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Cari mengikut No Akaun, Nama, Tel, Email, Kod Hadiah..."
+              placeholder="Cari mengikut No Akaun, Nama, Tel, Email, Kod Hadiah, Jenis Hadiah..."
               className="w-full pl-9 pr-3 py-2 bg-white border border-stone-300 rounded-xl text-xs font-medium text-stone-900 focus:outline-none focus:border-stone-800 shadow-2xs"
             />
           </div>
@@ -322,39 +506,63 @@ export const AuditLogsView: React.FC<AuditLogsViewProps> = ({ logs, onSelectAcco
                         )}
                       </td>
 
-                      {/* 🎁 REWARD STATUS (Strictly 1x per customer) */}
+                      {/* 🎁 REWARD STATUS (Strictly 1x per customer) & GIFT TYPE + REMAINING BALANCE */}
                       <td className="py-3 px-4 align-top">
                         {log.isRewardEligible ? (
-                          <div className="space-y-1.5">
+                          <div className="space-y-2">
                             {isClaimed ? (
-                              <div className="inline-flex flex-col gap-0.5">
-                                <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-emerald-100 border border-emerald-300 text-emerald-900 rounded-lg font-bold text-[11px]">
-                                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-700" />
+                              <div className="space-y-1.5 bg-emerald-50/60 p-2.5 rounded-xl border border-emerald-200">
+                                <div className="flex items-center gap-1 text-emerald-900 font-bold text-[11px]">
+                                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
                                   <span>Hadiah Telah Diserahkan</span>
-                                </span>
-                                {log.rewardClaimedAt && (
-                                  <span className="text-[10px] text-stone-500 font-mono pl-1">
-                                    Diserah: {log.rewardClaimedAt}
-                                  </span>
-                                )}
+                                </div>
+
+                                {/* 🎁 Display Chosen Gift Name & Remaining Stock */}
+                                <div className="space-y-1 pt-1 border-t border-emerald-200/70 text-[11px]">
+                                  <div className="flex items-center gap-1.5 text-stone-900 font-semibold">
+                                    <Gift className="w-3.5 h-3.5 text-purple-700 shrink-0" />
+                                    <span>Jenis Hadiah:</span>
+                                    <span className="text-purple-950 font-bold bg-purple-100 px-1.5 py-0.5 rounded border border-purple-200">
+                                      {log.rewardGiftName || 'Hadiah Penghargaan Rasmi'}
+                                    </span>
+                                  </div>
+
+                                  {typeof log.rewardGiftRemainingStock === 'number' && (
+                                    <div className="flex items-center gap-1.5 text-stone-600 text-[10px] font-mono pl-5">
+                                      <span>Baki Stok Semasa Diserah:</span>
+                                      <span className="font-bold text-stone-900 bg-white px-1.5 py-0.2 rounded border border-stone-300">
+                                        {log.rewardGiftRemainingStock} unit
+                                      </span>
+                                    </div>
+                                  )}
+
+                                  {log.rewardClaimedAt && (
+                                    <div className="text-[10px] text-stone-500 font-mono pl-5">
+                                      Diserah pada: {log.rewardClaimedAt}
+                                    </div>
+                                  )}
+                                </div>
                               </div>
                             ) : (
-                              <div className="flex flex-col sm:flex-row sm:items-center gap-1.5">
-                                <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-amber-50 border border-amber-300 text-amber-950 rounded-lg font-bold text-[11px] shadow-2xs">
-                                  <Gift className="w-3.5 h-3.5 text-amber-600" />
-                                  <span>Layak Hadiah (1x Sahaja)</span>
-                                </span>
+                              <div className="space-y-1.5">
+                                <div className="flex flex-col sm:flex-row sm:items-center gap-1.5">
+                                  <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-amber-50 border border-amber-300 text-amber-950 rounded-lg font-bold text-[11px] shadow-2xs">
+                                    <Gift className="w-3.5 h-3.5 text-amber-600" />
+                                    <span>Layak Hadiah (1x Sahaja)</span>
+                                  </span>
 
-                                {onClaimReward && (
-                                  <button
-                                    onClick={() => handleClaim(log.noAkaun, log.nama)}
-                                    className="px-2.5 py-1 bg-stone-900 hover:bg-black text-white text-[10px] font-bold rounded-lg transition-all shadow-2xs flex items-center gap-1 cursor-pointer"
-                                    title="Sahkan penyerahan hadiah penghargaan kepada pelanggan"
-                                  >
-                                    <Check className="w-3 h-3 text-emerald-400" />
-                                    <span>Tanda Hadiah Diberi</span>
-                                  </button>
-                                )}
+                                  {/* 🎁 Click to open Gift Selection Modal */}
+                                  {onClaimReward && (
+                                    <button
+                                      onClick={() => handleOpenClaimModal(log)}
+                                      className="px-2.5 py-1 bg-purple-950 hover:bg-black text-white text-[10px] font-bold rounded-lg transition-all shadow-2xs flex items-center gap-1.5 cursor-pointer border border-purple-900 hover:scale-[1.02]"
+                                      title="Pilih jenis hadiah daripada inventori untuk diserahkan kepada pelanggan"
+                                    >
+                                      <Gift className="w-3 h-3 text-amber-400" />
+                                      <span>Tanda Hadiah Diberi</span>
+                                    </button>
+                                  )}
+                                </div>
                               </div>
                             )}
 
@@ -391,6 +599,19 @@ export const AuditLogsView: React.FC<AuditLogsViewProps> = ({ logs, onSelectAcco
           </table>
         </div>
       </div>
+
+      {/* 🎁 Modal: Pilih Jenis Hadiah Penghargaan */}
+      <GiftClaimModal
+        isOpen={!!activeClaimLog}
+        onClose={handleCloseClaimModal}
+        recipient={activeClaimLog ? {
+          noAkaun: activeClaimLog.noAkaun,
+          nama: activeClaimLog.nama,
+          rewardCode: activeClaimLog.rewardCode || `GIFT-${activeClaimLog.noAkaun}`,
+          noTel: activeClaimLog.newPhone,
+        } : null}
+        onConfirmClaim={handleConfirmClaimWithGift}
+      />
     </div>
   );
 };

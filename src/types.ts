@@ -19,6 +19,8 @@ export interface CustomerAccount {
   rewardClaimedAt?: string;
   rewardEligibilityDate?: string;
   rewardCode?: string;
+  rewardGiftName?: string; // Jenis Hadiah yang dipilih semasa penyerahan
+  rewardGiftRemainingStock?: number; // Baki stok hadiah selepas penyerahan
   updateCount?: number;
 }
 
@@ -40,9 +42,11 @@ export interface ProfileUpdateAuditLog {
   rewardCode?: string;
   rewardClaimed?: boolean;
   rewardClaimedAt?: string;
+  rewardGiftName?: string; // Jenis Hadiah yang diberikan kepada pelanggan
+  rewardGiftRemainingStock?: number; // Baki stok hadiah selepas penyerahan
 }
 
-export type ActiveTab = 'lookup' | 'directory' | 'import_excel' | 'audit_logs' | 'spreadsheet' | 'google_sheets';
+export type ActiveTab = 'lookup' | 'directory' | 'import_excel' | 'audit_logs' | 'spreadsheet' | 'google_sheets' | 'gift_management';
 export type DeviceFrame = 'responsive' | 'mobile' | 'tablet';
 export type AdminRole = 'admin' | 'super_admin';
 
@@ -103,5 +107,17 @@ export interface ToastMessage {
     label: string;
     onClick: () => void;
   };
+}
+
+// 🎁 Pengurusan Hadiah Super Admin
+export interface GiftItem {
+  id: string;
+  namaHadiah: string;     // Jenis Hadiah (cth: Baucar RM10, Payung Eksklusif)
+  kuantiti: number;        // Bilangan / Kuantiti Asal yang didaftarkan (kekal asal)
+  kuantitiAsal?: number;   // Jumlah kuantiti asal yang didaftarkan
+  bakiSemasa?: number;     // Baki hadiah semasa yang tinggal dalam inventori
+  jumlahDitebus?: number;  // Bilangan unit hadiah yang telah diserahkan / ditebus
+  tarikhDitambah: string;  // Tarikh rekod dimasukkan
+  catatan?: string;        // Catatan tambahan (pilihan)
 }
 

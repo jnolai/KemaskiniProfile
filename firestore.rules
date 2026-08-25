@@ -18,6 +18,11 @@ service cloud.firestore {
     match /app_config/{configId} {
       allow read, write: if true;
     }
+
+    // Gifts inventory management (Super Admin)
+    match /gifts/{giftId} {
+      allow read, write: if true;
+    }
   }
 }
 

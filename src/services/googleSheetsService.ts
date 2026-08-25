@@ -1,5 +1,6 @@
 import { CustomerAccount, GoogleSheetsConfig, GoogleDriveSheetFile, GoogleSyncHistoryEntry } from '../types';
 import { googleOAuthClientId } from '../lib/firebase';
+import { getMalaysiaDateTime, getMalaysiaDateTimeFull } from '../utils/dateHelper';
 import { 
   isAccountNoColumn, 
   isOwnerNameColumn, 
@@ -201,7 +202,7 @@ export async function muatTurunDataProfile(customApiUrl?: string): Promise<Custo
         const lastUpdated = getFlexibleValue(item, [
           'Tarikh Kemaskini', 'tarikh_kemaskini', 'tarikhKemaskini', 'Tarikh Kemaskini Terakhir',
           'lastUpdated', 'last_updated', 'Timestamp', 'timestamp', /tarikh/i, /updated/i
-        ]) || new Date().toISOString().replace('T', ' ').slice(0, 16);
+        ]) || getMalaysiaDateTime();
 
         accountsList.push({
           id: noAkaun,
@@ -251,7 +252,7 @@ export async function simpanKemaskini(
     kategoriAkaun: account.kategoriAkaun || 'Kediaman',
     statusAkaun: account.status || 'Aktif',
     statusKemaskini: 'Berjaya Dikemaskini',
-    tarikhKemaskini: account.lastUpdated || new Date().toISOString().replace('T', ' ').slice(0, 16),
+    tarikhKemaskini: account.lastUpdated || getMalaysiaDateTime(),
     action: 'update',
     account: account
   };
@@ -576,7 +577,7 @@ export function addGoogleSyncLog(
     const logs = getGoogleSyncHistory();
     const entry: GoogleSyncHistoryEntry = {
       id: `gs-log-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
-      timestamp: new Date().toISOString().replace('T', ' ').slice(0, 19),
+      timestamp: getMalaysiaDateTimeFull(),
       action,
       status,
       message,
@@ -760,7 +761,7 @@ export function parseSheetRowsToAccounts(rows: any[][]): {
     else if (/semakan|review|pending/i.test(rawStatus)) status = 'Dalam Semakan';
 
     // Extract Updated flag & timestamp
-    let lastUpdated = updatedIdx >= 0 && row[updatedIdx] ? String(row[updatedIdx]).trim() : new Date().toISOString().replace('T', ' ').slice(0, 16);
+    let lastUpdated = updatedIdx >= 0 && row[updatedIdx] ? String(row[updatedIdx]).trim() : getMalaysiaDateTime();
     let telahDikemaskini = false;
     if (updateFlagIdx >= 0 && row[updateFlagIdx]) {
       const val = String(row[updateFlagIdx]).toLowerCase();
@@ -1179,7 +1180,7 @@ export async function updateSingleCustomerInGoogleSheet(
         updatedAccount.kategoriAkaun || 'Kediaman',
         updatedAccount.status || 'Aktif',
         updatedAccount.telahDikemaskini ? 'TELAH DIKEMASKINI' : 'REKOD ASAL',
-        updatedAccount.lastUpdated || new Date().toISOString().replace('T', ' ').slice(0, 16),
+        updatedAccount.lastUpdated || getMalaysiaDateTime(),
         updatedAccount.kemaskiniOleh || 'Portal Pelanggan',
         updatedAccount.rewardStatus || 'Belum Layak',
         updatedAccount.rewardCode || ''

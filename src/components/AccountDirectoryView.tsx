@@ -24,14 +24,18 @@ import {
   Trash2,
   Crown,
   HelpCircle,
-  Sparkles
+  Sparkles,
+  RotateCcw,
+  Gift
 } from 'lucide-react';
 import { CustomerAccount } from '../types';
 import { exportAccountsToExcel, parseAccountsExcel, downloadExcelTemplate } from '../utils/excelHelper';
 import { generateProfileSummaryPDF } from '../utils/pdfReceiptHelper';
+import { getMalaysiaDate, getMalaysiaDateTime } from '../utils/dateHelper';
 import { useToast } from '../context/ToastContext';
 import { buildAccountSearchIndex, fastFilterDirectory } from '../utils/searchEngine';
 import { ExcelTemplateModal } from './ExcelTemplateModal';
+import { GiftClaimModal } from './GiftClaimModal';
 
 interface AccountDirectoryViewProps {
   accounts: CustomerAccount[];
@@ -39,7 +43,7 @@ interface AccountDirectoryViewProps {
   onAddAccount: (acc: CustomerAccount) => void;
   onImportAccounts: (accounts: CustomerAccount[]) => void;
   onClearAllAccounts?: () => void;
-  onClaimReward?: (noAkaun: string) => void;
+  onClaimReward?: (noAkaun: string, giftName?: string, remainingStock?: number) => void;
   isSuperAdmin?: boolean;
   onRequireSuperAdmin?: () => void;
 }
@@ -79,6 +83,9 @@ export const AccountDirectoryView: React.FC<AccountDirectoryViewProps> = ({
   const [newKategori, setNewKategori] = useState('Kediaman');
   const [newNoTel, setNewNoTel] = useState('');
   const [newEmail, setNewEmail] = useState('');
+
+  // 🎁 Modal state for choosing Gift when clicking "Tanda Diserah"
+  const [activeClaimAccount, setActiveClaimAccount] = useState<CustomerAccount | null>(null);
 
   // ⚡ Fast in-memory search index
   const searchIndex = useMemo(() => {
@@ -155,8 +162,8 @@ export const AccountDirectoryView: React.FC<AccountDirectoryViewProps> = ({
       noTel: newNoTel.trim(),
       email: newEmail.trim(),
       status: 'Aktif',
-      tarikhDaftar: new Date().toISOString().slice(0, 10),
-      lastUpdated: new Date().toISOString().replace('T', ' ').slice(0, 16),
+      tarikhDaftar: getMalaysiaDate(),
+      lastUpdated: getMalaysiaDateTime(),
       kemaskiniOleh: 'Pentadbir Sistem',
     };
 
@@ -171,14 +178,19 @@ export const AccountDirectoryView: React.FC<AccountDirectoryViewProps> = ({
     setNewEmail('');
   };
 
-  const handleClaimRewardClick = (noAkaun: string, nama: string) => {
+  const handleClaimRewardClick = (acc: CustomerAccount) => {
+    setActiveClaimAccount(acc);
+  };
+
+  const handleConfirmClaimReward = (noAkaun: string, giftName: string, remainingStock: number) => {
     if (onClaimReward) {
-      onClaimReward(noAkaun);
-      showSuccess(
-        'Hadiah Berjaya Diberi',
-        `Hadiah penghargaan bagi akaun ${noAkaun} (${nama}) telah ditandakan sebagai Telah Dituntut.`
-      );
+      onClaimReward(noAkaun, giftName, remainingStock);
     }
+    showSuccess(
+      'Penyerahan Hadiah Disahkan & Direkodkan',
+      `Jenis Hadiah: "${giftName}" | Baki Stok Semasa: ${remainingStock} unit`
+    );
+    setActiveClaimAccount(null);
   };
 
   const handleExportExcel = () => {
@@ -253,17 +265,17 @@ export const AccountDirectoryView: React.FC<AccountDirectoryViewProps> = ({
               <Plus className="w-4 h-4" />
               <span>Daftar Akaun Baru</span>
             </button>
-            {accounts.length > 0 && onClearAllAccounts && (
+            {onClearAllAccounts && (
               isSuperAdmin ? (
                 <button
                   onClick={onClearAllAccounts}
-                  className="px-3 py-2 bg-red-50 hover:bg-red-100 text-red-700 rounded-xl text-xs font-semibold border border-red-200 transition-colors cursor-pointer flex items-center gap-1.5 shadow-2xs"
-                  title="Padam semua data akaun & log audit (Akses Penuh Super Admin)"
+                  className="px-3 py-2 bg-purple-50 hover:bg-purple-100 text-purple-950 rounded-xl text-xs font-semibold border border-purple-300 transition-colors cursor-pointer flex items-center gap-1.5 shadow-2xs"
+                  title="Reset rekod pada paparan skrin tanpa memadam pangkalan data awan (Akses Khas Super Admin)"
                 >
-                  <Trash2 className="w-3.5 h-3.5 text-red-600" />
-                  <span>Kosongkan Data</span>
-                  <span className="text-[9px] bg-red-100/90 text-red-800 border border-red-200 px-1.5 py-0.5 rounded font-mono font-bold uppercase tracking-wider flex items-center gap-1">
-                    <Crown className="w-2.5 h-2.5 text-amber-600" />
+                  <RotateCcw className="w-3.5 h-3.5 text-purple-900" />
+                  <span>Reset Rekod Dipaparan</span>
+                  <span className="text-[9px] bg-amber-200 text-purple-950 border border-amber-300 px-1.5 py-0.5 rounded font-mono font-bold uppercase tracking-wider flex items-center gap-1">
+                    <Crown className="w-2.5 h-2.5 text-purple-950" />
                     Super Admin
                   </span>
                 </button>
@@ -275,15 +287,15 @@ export const AccountDirectoryView: React.FC<AccountDirectoryViewProps> = ({
                     } else {
                       showWarning(
                         'Akses Super Admin Diperlukan',
-                        'Fungsi Kosongkan Data hanya boleh dilaksanakan oleh Super Admin sahaja.'
+                        'Fungsi Reset Rekod Dipaparan hanya boleh dilaksanakan oleh Super Admin sahaja.'
                       );
                     }
                   }}
                   className="px-3 py-2 bg-stone-100 hover:bg-stone-200 text-stone-600 rounded-xl text-xs font-semibold border border-stone-300 transition-colors cursor-pointer flex items-center gap-1.5 opacity-85 shadow-2xs"
-                  title="Fungsi Kosongkan Data dikunci — Sila sahkan kata laluan Super Admin"
+                  title="Fungsi Reset Rekod Dipaparan dikunci — Sila log masuk Super Admin"
                 >
                   <Lock className="w-3.5 h-3.5 text-stone-500" />
-                  <span>Kosongkan Data</span>
+                  <span>Reset Rekod Dipaparan</span>
                   <Crown className="w-3 h-3 text-amber-500" />
                 </button>
               )
@@ -605,8 +617,15 @@ export const AccountDirectoryView: React.FC<AccountDirectoryViewProps> = ({
                       {/* Status Hadiah (1x) */}
                       <td className="py-3 px-4 whitespace-nowrap">
                         {acc.rewardStatus === 'Telah Dituntut' ? (
-                          <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-emerald-100 text-emerald-900 border border-emerald-300 font-mono text-[10px] font-bold">
-                            <span>✅ Diserah</span>
+                          <div className="inline-flex flex-col gap-0.5">
+                            <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-emerald-100 text-emerald-900 border border-emerald-300 font-mono text-[10px] font-bold">
+                              <span>✅ Diserah</span>
+                            </div>
+                            {acc.rewardGiftName && (
+                              <span className="text-[10px] text-purple-950 font-bold">
+                                🎁 {acc.rewardGiftName}
+                              </span>
+                            )}
                           </div>
                         ) : acc.rewardStatus === 'Layak (Belum Dituntut)' ? (
                           <div className="flex items-center gap-1">
@@ -615,11 +634,12 @@ export const AccountDirectoryView: React.FC<AccountDirectoryViewProps> = ({
                             </span>
                             {onClaimReward && (
                               <button
-                                onClick={() => handleClaimRewardClick(acc.noAkaun, acc.nama)}
-                                className="px-1.5 py-0.5 bg-stone-900 hover:bg-black text-white rounded text-[10px] font-bold transition-colors cursor-pointer"
-                                title="Tandakan hadiah telah diserahkan"
+                                onClick={() => handleClaimRewardClick(acc)}
+                                className="px-2 py-0.5 bg-stone-900 hover:bg-black text-white rounded text-[10px] font-bold transition-all shadow-2xs cursor-pointer flex items-center gap-1 hover:scale-105 active:scale-95"
+                                title="Pilih & serahkan jenis hadiah penghargaan (1x) daripada inventori"
                               >
-                                Tanda Diserah
+                                <Gift className="w-3 h-3 text-amber-400" />
+                                <span>Tanda Diserah</span>
                               </button>
                             )}
                           </div>
@@ -852,6 +872,20 @@ export const AccountDirectoryView: React.FC<AccountDirectoryViewProps> = ({
         isOpen={showTemplateModal}
         onClose={() => setShowTemplateModal(false)}
         onImportFile={handleImportDirectFile}
+      />
+
+      {/* 🎁 Modal Penebusan & Pemilihan Hadiah Penghargaan */}
+      <GiftClaimModal
+        isOpen={!!activeClaimAccount}
+        onClose={() => setActiveClaimAccount(null)}
+        recipient={activeClaimAccount ? {
+          noAkaun: activeClaimAccount.noAkaun,
+          nama: activeClaimAccount.nama,
+          rewardCode: `GIFT-${activeClaimAccount.noAkaun}`,
+          kadPengenalan: activeClaimAccount.kadPengenalan,
+          noTel: activeClaimAccount.noTel,
+        } : null}
+        onConfirmClaim={handleConfirmClaimReward}
       />
     </div>
   );

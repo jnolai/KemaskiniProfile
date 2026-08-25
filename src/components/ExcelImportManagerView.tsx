@@ -17,11 +17,15 @@ import {
   ChevronsRight,
   Trash2,
   Crown,
-  Users
+  Users,
+  Gift,
+  RotateCcw
 } from 'lucide-react';
 import { CustomerAccount } from '../types';
 import { generateProfileSummaryPDF } from '../utils/pdfReceiptHelper';
+import { getMalaysiaDateTime } from '../utils/dateHelper';
 import { useToast } from '../context/ToastContext';
+import { GiftManagementSection } from './GiftManagementSection';
 import { 
   exportAccountsToExcel,
   isPhoneColumn,
@@ -71,6 +75,9 @@ export const ExcelImportManagerView: React.FC<ExcelImportManagerViewProps> = ({
   const [pageSize, setPageSize] = useState<number>(100);
   const [currentPage, setCurrentPage] = useState<number>(1);
   const [jumpPageInput, setJumpPageInput] = useState<string>('');
+
+  // Super Admin Workspace Sub-Section Switcher
+  const [activeSuperSection, setActiveSuperSection] = useState<'pelanggan' | 'hadiah'>('pelanggan');
 
   // Initialize or synchronize activeColumns from existing accounts or Firestore
   useEffect(() => {
@@ -249,7 +256,7 @@ export const ExcelImportManagerView: React.FC<ExcelImportManagerViewProps> = ({
         email: fieldType === 'email' ? trimmed : acc.email,
         rawRowData: updatedRaw,
         telahDikemaskini: true,
-        lastUpdated: new Date().toISOString().replace('T', ' ').slice(0, 16),
+        lastUpdated: getMalaysiaDateTime(),
         kemaskiniOleh: 'Kemaskini Data Pelanggan',
       };
 
@@ -291,7 +298,7 @@ export const ExcelImportManagerView: React.FC<ExcelImportManagerViewProps> = ({
         email: trimmedEmail,
         rawRowData: updatedRaw,
         telahDikemaskini: true,
-        lastUpdated: new Date().toISOString().replace('T', ' ').slice(0, 16),
+        lastUpdated: getMalaysiaDateTime(),
         kemaskiniOleh: 'Kemaskini Data Pelanggan',
       };
 
@@ -349,17 +356,17 @@ export const ExcelImportManagerView: React.FC<ExcelImportManagerViewProps> = ({
               <span>Eksport Data Semasa (.xlsx)</span>
             </button>
 
-            {accounts.length > 0 && onClearAllAccounts && (
+            {onClearAllAccounts && (
               isSuperAdmin ? (
                 <button
                   onClick={onClearAllAccounts}
-                  className="px-3.5 py-2.5 bg-red-50 hover:bg-red-100 text-red-700 rounded-xl text-xs font-semibold border border-red-200 transition-colors cursor-pointer flex items-center gap-1.5 shadow-2xs"
-                  title="Padam semua data akaun & log audit (Akses Khas Super Admin)"
+                  className="px-3.5 py-2.5 bg-purple-50 hover:bg-purple-100 text-purple-950 rounded-xl text-xs font-semibold border border-purple-300 transition-colors cursor-pointer flex items-center gap-1.5 shadow-2xs"
+                  title="Reset rekod pada paparan skrin tanpa memadam pangkalan data awan (Akses Khas Super Admin)"
                 >
-                  <Trash2 className="w-3.5 h-3.5 text-red-600" />
-                  <span>Kosongkan Data ({accounts.length.toLocaleString()})</span>
-                  <span className="text-[9px] bg-red-100/90 text-red-800 border border-red-200 px-1.5 py-0.5 rounded font-mono font-bold uppercase tracking-wider flex items-center gap-1">
-                    <Crown className="w-2.5 h-2.5 text-amber-600" />
+                  <RotateCcw className="w-3.5 h-3.5 text-purple-900" />
+                  <span>Reset Rekod Dipaparan</span>
+                  <span className="text-[9px] bg-amber-200 text-purple-950 border border-amber-300 px-1.5 py-0.5 rounded font-mono font-bold uppercase tracking-wider flex items-center gap-1">
+                    <Crown className="w-2.5 h-2.5 text-purple-950" />
                     Super Admin
                   </span>
                 </button>
@@ -371,23 +378,64 @@ export const ExcelImportManagerView: React.FC<ExcelImportManagerViewProps> = ({
                     } else {
                       showWarning(
                         'Akses Super Admin Diperlukan',
-                        'Fungsi Kosongkan Data hanya boleh dilaksanakan oleh Super Admin sahaja.'
+                        'Fungsi Reset Rekod Dipaparan hanya boleh dilaksanakan oleh Super Admin sahaja.'
                       );
                     }
                   }}
                   className="px-3.5 py-2.5 bg-stone-100 hover:bg-stone-200 text-stone-600 rounded-xl text-xs font-semibold border border-stone-300 transition-colors cursor-pointer flex items-center gap-1.5 opacity-85 shadow-2xs"
-                  title="Fungsi Kosongkan Data dikunci — Sila sahkan kata laluan Super Admin"
+                  title="Fungsi Reset Rekod Dipaparan dikunci — Sila sahkan kata laluan Super Admin"
                 >
                   <Lock className="w-3.5 h-3.5 text-stone-500" />
-                  <span>Kosongkan Data</span>
+                  <span>Reset Rekod Dipaparan</span>
                   <Crown className="w-3 h-3 text-amber-500" />
                 </button>
               )
             )}
           </div>
         </div>
+
+        {/* 🎛️ Super Admin Sub-section Toggle Tabs */}
+        <div className="flex flex-wrap items-center gap-2 pt-4 mt-4 border-t border-stone-200">
+          <button
+            type="button"
+            onClick={() => setActiveSuperSection('pelanggan')}
+            className={`px-4 py-2 text-xs font-semibold rounded-xl transition-all flex items-center gap-2 cursor-pointer ${
+              activeSuperSection === 'pelanggan'
+                ? 'bg-purple-950 text-white shadow-xs'
+                : 'bg-white text-stone-700 hover:bg-stone-100 border border-stone-300'
+            }`}
+          >
+            <Users className="w-3.5 h-3.5" />
+            <span>Carian & Data Pelanggan</span>
+            <span className={`text-[10px] font-mono px-1.5 py-0.2 rounded-full ${
+              activeSuperSection === 'pelanggan' ? 'bg-purple-900 text-purple-200' : 'bg-stone-100 text-stone-600'
+            }`}>
+              {stats.total.toLocaleString()}
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveSuperSection('hadiah')}
+            className={`px-4 py-2 text-xs font-semibold rounded-xl transition-all flex items-center gap-2 cursor-pointer ${
+              activeSuperSection === 'hadiah'
+                ? 'bg-purple-950 text-white shadow-xs'
+                : 'bg-white text-stone-700 hover:bg-stone-100 border border-stone-300'
+            }`}
+          >
+            <Gift className="w-3.5 h-3.5 text-amber-400" />
+            <span>Pengurusan Hadiah</span>
+            <span className="bg-amber-100 text-amber-900 border border-amber-300 text-[10px] font-mono px-1.5 py-0.2 rounded-full font-bold">
+              Baru
+            </span>
+          </button>
+        </div>
       </div>
 
+      {activeSuperSection === 'hadiah' ? (
+        <GiftManagementSection />
+      ) : (
+        <>
       {/* 🔍 2. Data Search & Direct Update Workspace */}
       <div className="bg-[#FAF9F6] border border-stone-300 rounded-2xl p-5 sm:p-6 shadow-2xs space-y-4">
         
@@ -962,6 +1010,8 @@ export const ExcelImportManagerView: React.FC<ExcelImportManagerViewProps> = ({
           </div>
         )}
       </div>
+      </>
+      )}
 
       {/* 📝 3. Single Row Direct Edit Modal */}
       {activeEditAccount && (

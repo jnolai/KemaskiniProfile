@@ -32,6 +32,7 @@ import {
 } from 'lucide-react';
 import { CustomerAccount } from '../types';
 import { generateProfileSummaryPDF } from '../utils/pdfReceiptHelper';
+import { getMalaysiaDateTime } from '../utils/dateHelper';
 import { useToast } from '../context/ToastContext';
 import { 
   searchAccountInGoogleSheetLive, 
@@ -455,7 +456,7 @@ export const CustomerPortalLookup: React.FC<CustomerPortalLookupProps> = ({
         noTel: cleanedPhone,
         email: cleanedEmail,
         telahDikemaskini: true,
-        lastUpdated: new Date().toISOString().replace('T', ' ').slice(0, 16),
+        lastUpdated: getMalaysiaDateTime(),
         kemaskiniOleh: 'Pelanggan (Portal)',
       };
 
@@ -673,7 +674,7 @@ export const CustomerPortalLookup: React.FC<CustomerPortalLookupProps> = ({
               ) : isSearchingLiveGoogleSheet ? (
                 <>
                   <RefreshCw className="w-4 h-4 animate-spin text-amber-300" />
-                  <span>Mencari Google Sheets...</span>
+                  <span>Menyemak Rekod Akaun...</span>
                 </>
               ) : (
                 <>
@@ -684,33 +685,6 @@ export const CustomerPortalLookup: React.FC<CustomerPortalLookupProps> = ({
             </button>
           </div>
 
-          {/* 🕒 Recent Searches Quick Access Pills */}
-          {!hasSearched && recentSearches.length > 0 && (
-            <div className="flex flex-wrap items-center gap-2 pt-1">
-              <span className="text-[11px] text-stone-500 font-mono flex items-center gap-1">
-                <History className="w-3 h-3 text-stone-400" />
-                <span>Carian Terkini:</span>
-              </span>
-              {recentSearches.map((accNo) => (
-                <button
-                  key={`rec_${accNo}`}
-                  type="button"
-                  onClick={() => {
-                    const lookup = fastLookupByAccountNo(searchIndex, accNo);
-                    if (lookup.exactMatch) {
-                      selectAccountDirectly(lookup.exactMatch);
-                    } else {
-                      setSearchInput(accNo);
-                    }
-                  }}
-                  className="px-2.5 py-1 bg-white hover:bg-stone-100 border border-stone-300 hover:border-stone-400 rounded-lg text-xs font-mono font-bold text-stone-800 transition-all shadow-2xs cursor-pointer flex items-center gap-1"
-                >
-                  <span>{accNo}</span>
-                </button>
-              ))}
-            </div>
-          )}
-
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 text-[11px] text-stone-500 font-serif pt-0.5">
             <p className="italic flex items-center gap-1.5">
               <HelpCircle className="w-3.5 h-3.5 text-stone-400 shrink-0" />
@@ -719,7 +693,7 @@ export const CustomerPortalLookup: React.FC<CustomerPortalLookupProps> = ({
             {isSheetActive && (
               <span className="font-mono text-emerald-800 font-medium inline-flex items-center gap-1">
                 <Check className="w-3 h-3 text-emerald-600" />
-                Carian Google Sheets Langsung Aktif
+                Carian Pangkalan Data Langsung Aktif
               </span>
             )}
           </div>
