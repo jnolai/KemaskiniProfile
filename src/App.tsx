@@ -158,6 +158,55 @@ export default function App() {
 
   // IndexedDB ready flag to prevent premature sync overwriting on initial render
   const isIDBReadyRef = useRef(false);
+  const [isSyncingCloud, setIsSyncingCloud] = useState(false);
+
+  // Reload records from Cloud Firestore & Central Database without deleting anything
+  const handleReloadFromCloud = async (showToast = true) => {
+    setIsSyncingCloud(true);
+    try {
+      const [cloudAccounts, cloudLogs] = await Promise.all([
+        fetchAccountsFromFirestore(),
+        fetchAuditLogsFromFirestore(),
+      ]);
+
+      let loadedAccountsCount = 0;
+      let loadedLogsCount = 0;
+
+      if (cloudAccounts && cloudAccounts.length > 0) {
+        setAccounts(cloudAccounts);
+        loadedAccountsCount = cloudAccounts.length;
+        saveAccountsToIDB(cloudAccounts).catch(() => {});
+        try {
+          localStorage.setItem(STORAGE_ACCOUNTS_KEY, JSON.stringify(cloudAccounts));
+        } catch {}
+      }
+
+      if (cloudLogs && cloudLogs.length > 0) {
+        setAuditLogs(cloudLogs);
+        loadedLogsCount = cloudLogs.length;
+        saveAuditLogsToIDB(cloudLogs).catch(() => {});
+        try {
+          localStorage.setItem(STORAGE_AUDIT_LOGS_KEY, JSON.stringify(cloudLogs));
+        } catch {}
+      }
+
+      setIsCloudConnected(true);
+
+      if (showToast) {
+        showSuccess(
+          'Penyegerakan Awan Selesai',
+          `Sebanyak ${loadedAccountsCount} akaun dan ${loadedLogsCount} log audit telah disegerakkan dengan pangkalan data awan.`
+        );
+      }
+    } catch (err: any) {
+      console.warn('Reload from cloud warning:', err);
+      if (showToast) {
+        showWarning('Peringatan Muat Semula', 'Pangkalan data awan beroperasi dalam mod storan selamat.');
+      }
+    } finally {
+      setIsSyncingCloud(false);
+    }
+  };
 
   // ⚡ Live Firestore Real-Time Subscriptions & Cross-Device Cloud Data Synchronization
   useEffect(() => {
@@ -276,10 +325,26 @@ export default function App() {
       }
     );
 
+    // 4. Auto re-fetch when user switches tabs or window gains focus (e.g. from Chrome to Edge)
+    const handleWindowFocus = () => {
+      handleReloadFromCloud(false);
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        handleReloadFromCloud(false);
+      }
+    };
+
+    window.addEventListener('focus', handleWindowFocus);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
     return () => {
       unsubscribeAccounts();
       unsubscribeLogs();
       unsubscribeGsConfig();
+      window.removeEventListener('focus', handleWindowFocus);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
   }, []);
 
@@ -621,45 +686,6 @@ export default function App() {
     );
   };
 
-  // Reload records from Cloud Firestore without deleting anything
-  const handleReloadFromCloud = async () => {
-    try {
-      const [cloudAccounts, cloudLogs] = await Promise.all([
-        fetchAccountsFromFirestore(),
-        fetchAuditLogsFromFirestore(),
-      ]);
-
-      let loadedAccountsCount = 0;
-      let loadedLogsCount = 0;
-
-      if (cloudAccounts && cloudAccounts.length > 0) {
-        setAccounts(cloudAccounts);
-        loadedAccountsCount = cloudAccounts.length;
-        saveAccountsToIDB(cloudAccounts).catch(() => {});
-        try {
-          localStorage.setItem(STORAGE_ACCOUNTS_KEY, JSON.stringify(cloudAccounts));
-        } catch {}
-      }
-
-      if (cloudLogs && cloudLogs.length > 0) {
-        setAuditLogs(cloudLogs);
-        loadedLogsCount = cloudLogs.length;
-        saveAuditLogsToIDB(cloudLogs).catch(() => {});
-        try {
-          localStorage.setItem(STORAGE_AUDIT_LOGS_KEY, JSON.stringify(cloudLogs));
-        } catch {}
-      }
-
-      showSuccess(
-        'Muat Semula Dari Awan Berjaya',
-        `Sebanyak ${loadedAccountsCount} akaun dan ${loadedLogsCount} log audit telah dimuat semula dari pangkalan data awan ke paparan skrin.`
-      );
-    } catch (err: any) {
-      console.warn('Reload from cloud warning:', err);
-      showWarning('Peringatan Muat Semula', 'Pangkalan data awan beroperasi dalam mod storan selamat.');
-    }
-  };
-
   // 🔄 Sync latest customer records directly from connected Google Sheet into system state & Firestore
   const handleSyncFromGoogleSheets = async (): Promise<CustomerAccount[]> => {
     const result = await fetchLiveAccountsFromGoogleSheets();
@@ -865,6 +891,8 @@ export default function App() {
             onResetDisplay={handleRequestResetDisplay}
             isSuperAdmin={isSuperAdmin}
             onRequireSuperAdmin={() => handleOpenAdminLogin('import_excel')}
+            onReloadFromCloud={() => handleReloadFromCloud(true)}
+            isReloading={isSyncingCloud}
           />
         );
       case 'spreadsheet':
@@ -948,6 +976,9 @@ export default function App() {
         adminRole={adminRole}
         onOpenAdminLogin={handleOpenAdminLogin}
         onLogoutAdmin={handleLogoutAdmin}
+        onSyncCloudData={() => handleReloadFromCloud(true)}
+        isSyncingCloud={isSyncingCloud}
+        isCloudConnected={isCloudConnected}
       />
 
       {/* Main Content Area */}

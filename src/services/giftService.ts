@@ -186,6 +186,13 @@ export function subscribeToGifts(
           list.sort((a, b) => (b.tarikhDitambah || '').localeCompare(a.tarikhDitambah || ''));
           saveGiftsLocally(list);
           callback(list);
+        } else {
+          // Cloud collection is empty: seed with default gifts so all browsers share the same initial list
+          const initialGifts = getStoredGifts();
+          initialGifts.forEach((g) => {
+            saveGiftToFirestore(g).catch(() => {});
+          });
+          callback(initialGifts);
         }
       },
       (err) => {

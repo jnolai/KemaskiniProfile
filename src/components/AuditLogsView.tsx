@@ -18,7 +18,8 @@ import {
   Info,
   RotateCcw,
   Crown,
-  Lock
+  Lock,
+  RefreshCw
 } from 'lucide-react';
 import { ProfileUpdateAuditLog, GiftItem } from '../types';
 import { exportAuditLogsToExcel } from '../utils/excelHelper';
@@ -39,6 +40,8 @@ interface AuditLogsViewProps {
   onResetDisplay?: () => void;
   isSuperAdmin?: boolean;
   onRequireSuperAdmin?: () => void;
+  onReloadFromCloud?: () => void;
+  isReloading?: boolean;
 }
 
 export const AuditLogsView: React.FC<AuditLogsViewProps> = ({ 
@@ -47,7 +50,9 @@ export const AuditLogsView: React.FC<AuditLogsViewProps> = ({
   onClaimReward,
   onResetDisplay,
   isSuperAdmin = false,
-  onRequireSuperAdmin
+  onRequireSuperAdmin,
+  onReloadFromCloud,
+  isReloading = false
 }) => {
   const { showSuccess, showWarning, showInfo } = useToast();
   const [searchQuery, setSearchQuery] = useState('');
@@ -208,6 +213,18 @@ export const AuditLogsView: React.FC<AuditLogsViewProps> = ({
           </div>
 
           <div className="flex flex-wrap items-center gap-2 self-start md:self-auto shrink-0">
+            {onReloadFromCloud && (
+              <button
+                onClick={onReloadFromCloud}
+                disabled={isReloading}
+                className="px-3.5 py-2.5 bg-white hover:bg-stone-100 text-stone-800 rounded-xl text-xs font-semibold shadow-2xs transition-colors flex items-center gap-1.5 border border-stone-300 cursor-pointer disabled:opacity-50"
+                title="Segerakkan rekod log & hadiah terkini daripada pangkalan data awan"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 text-emerald-600 ${isReloading ? 'animate-spin' : ''}`} />
+                <span>{isReloading ? 'Menyegerak...' : 'Segerak Data Awan'}</span>
+              </button>
+            )}
+
             <button
               onClick={handleExportLogs}
               disabled={logs.length === 0}

@@ -17,7 +17,10 @@ import {
   Database,
   Crown,
   Edit3,
-  Gift
+  Gift,
+  RefreshCw,
+  CloudCheck,
+  Cloud
 } from 'lucide-react';
 import { ActiveTab, DeviceFrame, AdminRole } from '../types';
 import { Logo } from './Logo';
@@ -36,6 +39,9 @@ interface NavbarProps {
   adminRole: AdminRole | null;
   onOpenAdminLogin: (targetTab?: ActiveTab) => void;
   onLogoutAdmin: () => void;
+  onSyncCloudData?: () => void;
+  isSyncingCloud?: boolean;
+  isCloudConnected?: boolean;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -52,6 +58,9 @@ export const Navbar: React.FC<NavbarProps> = ({
   adminRole,
   onOpenAdminLogin,
   onLogoutAdmin,
+  onSyncCloudData,
+  isSyncingCloud = false,
+  isCloudConnected = true,
 }) => {
   const handleTabClick = (tab: ActiveTab) => {
     if (tab === 'lookup') {
@@ -136,6 +145,26 @@ export const Navbar: React.FC<NavbarProps> = ({
 
           {/* Action Buttons & Admin Auth State */}
           <div className="flex items-center gap-2">
+            {onSyncCloudData && (
+              <button
+                id="header-cloud-sync-btn"
+                onClick={onSyncCloudData}
+                disabled={isSyncingCloud}
+                className={`p-2 sm:px-3 sm:py-2 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all border shadow-xs cursor-pointer ${
+                  isCloudConnected 
+                    ? 'bg-emerald-50 hover:bg-emerald-100 text-emerald-900 border-emerald-300' 
+                    : 'bg-amber-50 hover:bg-amber-100 text-amber-900 border-amber-300'
+                }`}
+                title="Segerak Data Awan (Firestore & Google Apps Script)"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 text-emerald-700 ${isSyncingCloud ? 'animate-spin' : ''}`} />
+                <span className="hidden sm:inline">
+                  {isSyncingCloud ? 'Menyegerak...' : 'Segerak Awan'}
+                </span>
+                <span className="inline-block w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+              </button>
+            )}
+
             <button
               id="guide-btn"
               onClick={onOpenGuide}

@@ -172,15 +172,16 @@ export function subscribeToAuditLogs(
 
   try {
     const colRef = collection(db, AUDIT_LOGS_COLLECTION);
-    const q = query(colRef, orderBy('timestamp', 'desc'), limit(500));
     const unsubscribe = onSnapshot(
-      q,
+      colRef,
       (snapshot) => {
         const list: ProfileUpdateAuditLog[] = [];
         snapshot.forEach((docSnap) => {
           list.push(docSnap.data() as ProfileUpdateAuditLog);
         });
-        onUpdate(list);
+        // Sort descending by timestamp in memory for 100% reliable order across all browsers
+        list.sort((a, b) => (b.timestamp || '').localeCompare(a.timestamp || ''));
+        onUpdate(list.slice(0, 500));
       },
       (err) => {
         const isQuota = checkAndMarkQuotaError(err);
@@ -605,13 +606,13 @@ export async function fetchAuditLogsFromFirestore(): Promise<ProfileUpdateAuditL
   if (isCloudQuotaExceeded) return [];
   try {
     const colRef = collection(db, AUDIT_LOGS_COLLECTION);
-    const q = query(colRef, orderBy('timestamp', 'desc'), limit(500));
-    const snapshot = await getDocs(q);
+    const snapshot = await getDocs(colRef);
     const list: ProfileUpdateAuditLog[] = [];
     snapshot.forEach((docSnap) => {
       list.push(docSnap.data() as ProfileUpdateAuditLog);
     });
-    return list;
+    list.sort((a, b) => (b.timestamp || '').localeCompare(a.timestamp || ''));
+    return list.slice(0, 500);
   } catch (err: any) {
     checkAndMarkQuotaError(err);
     return [];
