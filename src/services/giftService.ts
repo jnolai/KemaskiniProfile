@@ -1,4 +1,4 @@
-import { doc, setDoc, deleteDoc, onSnapshot, collection } from 'firebase/firestore';
+import { doc, setDoc, deleteDoc, onSnapshot, collection, getDocs, writeBatch } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { GiftItem } from '../types';
 import { getMalaysiaDateTime } from '../utils/dateHelper';
@@ -58,7 +58,7 @@ export function getStoredGifts(): GiftItem[] {
     const saved = localStorage.getItem(STORAGE_GIFTS_KEY);
     if (saved) {
       const parsed = JSON.parse(saved);
-      if (Array.isArray(parsed) && parsed.length > 0) {
+      if (Array.isArray(parsed)) {
         return parsed.map((item: any) => {
           const initialQty = Number(item.kuantitiAsal) || Number(item.kuantiti) || 50;
           const currentBal = item.bakiSemasa !== undefined 
@@ -70,7 +70,7 @@ export function getStoredGifts(): GiftItem[] {
 
           return {
             ...item,
-            kuantiti: initialQty, // Bilangan asal kekal
+            kuantiti: initialQty,
             kuantitiAsal: initialQty,
             bakiSemasa: Math.max(0, currentBal),
             jumlahDitebus: Math.max(0, claimed),
@@ -95,7 +95,7 @@ export function saveGiftsLocally(gifts: GiftItem[]): void {
       const claimed = g.jumlahDitebus !== undefined ? Number(g.jumlahDitebus) : Math.max(0, initial - baki);
       return {
         ...g,
-        kuantiti: initial, // Bilangan asal kekal
+        kuantiti: initial,
         kuantitiAsal: initial,
         bakiSemasa: Math.max(0, baki),
         jumlahDitebus: Math.max(0, claimed),
@@ -107,6 +107,28 @@ export function saveGiftsLocally(gifts: GiftItem[]): void {
     }
   } catch (e) {
     console.warn('Could not save gifts to localStorage:', e);
+  }
+}
+
+/**
+ * Fetch all gifts directly from Firestore
+ */
+export async function fetchGiftsFromFirestore(): Promise<GiftItem[]> {
+  try {
+    const colRef = collection(db, GIFTS_COLLECTION);
+    const snapshot = await getDocs(colRef);
+    const list: GiftItem[] = [];
+    snapshot.forEach((d) => {
+      list.push(d.data() as GiftItem);
+    });
+    list.sort((a, b) => (b.tarikhDitambah || '').localeCompare(a.tarikhDitambah || ''));
+    if (list.length > 0) {
+      saveGiftsLocally(list);
+    }
+    return list;
+  } catch (err) {
+    console.warn('[Firestore] Error fetching gifts:', err);
+    return getStoredGifts();
   }
 }
 
@@ -123,7 +145,7 @@ export async function saveGiftToFirestore(gift: GiftItem): Promise<void> {
     await setDoc(docRef, {
       id: gift.id,
       namaHadiah: String(gift.namaHadiah || '').trim(),
-      kuantiti: initial, // Bilangan asal kekal
+      kuantiti: initial,
       kuantitiAsal: initial,
       bakiSemasa: Math.max(0, baki),
       jumlahDitebus: Math.max(0, claimed),
@@ -148,7 +170,39 @@ export async function deleteGiftFromFirestore(giftId: string): Promise<void> {
 }
 
 /**
- * Subscribe to gifts from Firestore and/or Local Storage
+ * Clear all gifts from both Firestore and LocalStorage
+ */
+export async function clearAllGifts(): Promise<void> {
+  try {
+    const colRef = collection(db, GIFTS_COLLECTION);
+    const snapshot = await getDocs(colRef);
+    const deletePromises: Promise<void>[] = [];
+    snapshot.forEach((d) => {
+      deletePromises.push(deleteDoc(d.ref));
+    });
+    await Promise.all(deletePromises);
+  } catch (err) {
+    console.warn('[Firestore] Error clearing gifts from cloud:', err);
+  }
+  saveGiftsLocally([]);
+}
+
+/**
+ * Reset and upload sample gifts to Firestore and LocalStorage
+ */
+export async function resetGiftsToSample(): Promise<GiftItem[]> {
+  try {
+    const promises = INITIAL_SAMPLE_GIFTS.map((g) => saveGiftToFirestore(g));
+    await Promise.all(promises);
+  } catch (err) {
+    console.warn('[Firestore] Error resetting sample gifts to cloud:', err);
+  }
+  saveGiftsLocally(INITIAL_SAMPLE_GIFTS);
+  return INITIAL_SAMPLE_GIFTS;
+}
+
+/**
+ * Subscribe to gifts from Firestore and/or Local Storage in real-time
  */
 export function subscribeToGifts(
   callback: (gifts: GiftItem[]) => void
@@ -170,30 +224,20 @@ export function subscribeToGifts(
     window.addEventListener('portal_gifts_updated', handleLocalEvent);
   }
 
-  // Firestore real-time listener
+  // Firestore real-time listener across all devices
   let unsubscribeFirestore = () => {};
   try {
     const colRef = collection(db, GIFTS_COLLECTION);
     unsubscribeFirestore = onSnapshot(
       colRef,
       (snapshot) => {
-        if (!snapshot.empty) {
-          const list: GiftItem[] = [];
-          snapshot.forEach((d) => {
-            list.push(d.data() as GiftItem);
-          });
-          // Sort by added date or id
-          list.sort((a, b) => (b.tarikhDitambah || '').localeCompare(a.tarikhDitambah || ''));
-          saveGiftsLocally(list);
-          callback(list);
-        } else {
-          // Cloud collection is empty: seed with default gifts so all browsers share the same initial list
-          const initialGifts = getStoredGifts();
-          initialGifts.forEach((g) => {
-            saveGiftToFirestore(g).catch(() => {});
-          });
-          callback(initialGifts);
-        }
+        const list: GiftItem[] = [];
+        snapshot.forEach((d) => {
+          list.push(d.data() as GiftItem);
+        });
+        list.sort((a, b) => (b.tarikhDitambah || '').localeCompare(a.tarikhDitambah || ''));
+        saveGiftsLocally(list);
+        callback(list);
       },
       (err) => {
         console.warn('[Firestore] Gifts listener fallback to local:', err?.message);
@@ -227,7 +271,6 @@ export async function deductGiftStock(
   );
 
   if (targetIndex === -1) {
-    // If not found in current inventory, treat as custom gift with 0 remaining
     return {
       success: true,
       giftName: giftIdOrName,
@@ -243,10 +286,10 @@ export async function deductGiftStock(
 
   const updatedGift: GiftItem = {
     ...target,
-    kuantiti: initialQty, // Bilangan asal kekal
-    kuantitiAsal: initialQty, // Bilangan asal kekal
-    bakiSemasa: newBal, // Baki semasa yang tinggal
-    jumlahDitebus: newClaimed, // Unit telah diserah
+    kuantiti: initialQty,
+    kuantitiAsal: initialQty,
+    bakiSemasa: newBal,
+    jumlahDitebus: newClaimed,
   };
 
   const updatedList = [...currentGifts];
@@ -254,7 +297,7 @@ export async function deductGiftStock(
 
   // Persist locally & cloud
   saveGiftsLocally(updatedList);
-  saveGiftToFirestore(updatedGift).catch(console.warn);
+  await saveGiftToFirestore(updatedGift);
 
   return {
     success: true,
@@ -265,7 +308,7 @@ export async function deductGiftStock(
 }
 
 /**
- * Add a new gift to inventory
+ * Add a new gift to inventory (saves to Cloud Firestore & Local)
  */
 export async function addNewGift(
   namaHadiah: string,
@@ -273,15 +316,14 @@ export async function addNewGift(
   catatan?: string
 ): Promise<GiftItem> {
   const formattedDate = getMalaysiaDateTime();
-
   const validQty = Math.max(0, Number(kuantiti) || 0);
 
   const newGift: GiftItem = {
     id: `gift-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
     namaHadiah: namaHadiah.trim(),
-    kuantiti: validQty, // Bilangan asal kekal
+    kuantiti: validQty,
     kuantitiAsal: validQty,
-    bakiSemasa: validQty, // Baki semasa awal sama dengan bilangan asal
+    bakiSemasa: validQty,
     jumlahDitebus: 0,
     tarikhDitambah: formattedDate,
     catatan: catatan?.trim() || undefined,
@@ -291,23 +333,23 @@ export async function addNewGift(
   const updated = [newGift, ...current];
 
   saveGiftsLocally(updated);
-  saveGiftToFirestore(newGift).catch(console.warn);
+  await saveGiftToFirestore(newGift);
 
   return newGift;
 }
 
 /**
- * Remove gift by ID
+ * Remove gift by ID (deletes from Cloud Firestore & Local)
  */
 export async function removeGift(giftId: string): Promise<void> {
   const current = getStoredGifts();
   const updated = current.filter((g) => g.id !== giftId);
   saveGiftsLocally(updated);
-  deleteGiftFromFirestore(giftId).catch(console.warn);
+  await deleteGiftFromFirestore(giftId);
 }
 
 /**
- * Update existing gift
+ * Update existing gift (updates Cloud Firestore & Local)
  */
 export async function updateGiftItem(
   giftId: string,
@@ -327,7 +369,7 @@ export async function updateGiftItem(
       return {
         ...g,
         ...updates,
-        kuantiti: newInitial, // Bilangan asal kekal
+        kuantiti: newInitial,
         kuantitiAsal: newInitial,
         bakiSemasa: newBaki,
       };
@@ -338,6 +380,6 @@ export async function updateGiftItem(
 
   const target = updated.find((g) => g.id === giftId);
   if (target) {
-    saveGiftToFirestore(target).catch(console.warn);
+    await saveGiftToFirestore(target);
   }
 }

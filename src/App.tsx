@@ -10,7 +10,8 @@ import {
   CustomerAccount, 
   ProfileUpdateAuditLog,
   AdminRole,
-  GoogleSheetsConfig
+  GoogleSheetsConfig,
+  GiftItem
 } from './types';
 import { initialCustomerAccounts } from './data/sampleAccounts';
 import { Navbar } from './components/Navbar';
@@ -43,6 +44,12 @@ import {
   subscribeToGoogleSheetsConfig,
   fetchGoogleSheetsConfigFromFirestore
 } from './services/firebaseService';
+import { 
+  getStoredGifts, 
+  saveGiftsLocally, 
+  subscribeToGifts, 
+  fetchGiftsFromFirestore 
+} from './services/giftService';
 import { 
   saveAccountsToIDB, 
   loadAccountsFromIDB, 
@@ -156,6 +163,9 @@ export default function App() {
     return [];
   });
 
+  // Gifts inventory state - synced live across all devices
+  const [gifts, setGifts] = useState<GiftItem[]>(() => getStoredGifts());
+
   // IndexedDB ready flag to prevent premature sync overwriting on initial render
   const isIDBReadyRef = useRef(false);
   const [isSyncingCloud, setIsSyncingCloud] = useState(false);
@@ -164,13 +174,15 @@ export default function App() {
   const handleReloadFromCloud = async (showToast = true) => {
     setIsSyncingCloud(true);
     try {
-      const [cloudAccounts, cloudLogs] = await Promise.all([
+      const [cloudAccounts, cloudLogs, cloudGifts] = await Promise.all([
         fetchAccountsFromFirestore(),
         fetchAuditLogsFromFirestore(),
+        fetchGiftsFromFirestore(),
       ]);
 
       let loadedAccountsCount = 0;
       let loadedLogsCount = 0;
+      let loadedGiftsCount = 0;
 
       if (cloudAccounts && cloudAccounts.length > 0) {
         setAccounts(cloudAccounts);
@@ -190,12 +202,18 @@ export default function App() {
         } catch {}
       }
 
+      if (cloudGifts) {
+        setGifts(cloudGifts);
+        loadedGiftsCount = cloudGifts.length;
+        saveGiftsLocally(cloudGifts);
+      }
+
       setIsCloudConnected(true);
 
       if (showToast) {
         showSuccess(
           'Penyegerakan Awan Selesai',
-          `Sebanyak ${loadedAccountsCount} akaun dan ${loadedLogsCount} log audit telah disegerakkan dengan pangkalan data awan.`
+          `Sebanyak ${loadedAccountsCount} akaun, ${loadedLogsCount} log audit, dan ${loadedGiftsCount} inventori hadiah telah disegerakkan dengan pangkalan data awan.`
         );
       }
     } catch (err: any) {
@@ -283,6 +301,14 @@ export default function App() {
       console.info('[Google Apps Script] Initial muatTurunDataProfile info:', err);
     });
 
+    // 2d. Direct fetch Gift Inventory from Cloud Firestore
+    fetchGiftsFromFirestore().then((cloudGifts) => {
+      if (cloudGifts && cloudGifts.length > 0) {
+        setGifts(cloudGifts);
+        saveGiftsLocally(cloudGifts);
+      }
+    }).catch(() => {});
+
     // 3. Real-time Firestore snapshot listeners
     const unsubscribeAccounts = subscribeToAccounts(
       (firestoreAccounts) => {
@@ -313,6 +339,15 @@ export default function App() {
       }
     );
 
+    const unsubscribeGifts = subscribeToGifts(
+      (updatedGifts) => {
+        if (updatedGifts) {
+          setGifts(updatedGifts);
+          saveGiftsLocally(updatedGifts);
+        }
+      }
+    );
+
     const unsubscribeGsConfig = subscribeToGoogleSheetsConfig(
       (cloudConfig) => {
         if (cloudConfig) {
@@ -325,7 +360,7 @@ export default function App() {
       }
     );
 
-    // 4. Auto re-fetch when user switches tabs or window gains focus (e.g. from Chrome to Edge)
+    // 4. Auto re-fetch when user switches tabs or window gains focus (e.g. from Chrome to Edge or PC to Tablet)
     const handleWindowFocus = () => {
       handleReloadFromCloud(false);
     };
@@ -342,6 +377,7 @@ export default function App() {
     return () => {
       unsubscribeAccounts();
       unsubscribeLogs();
+      unsubscribeGifts();
       unsubscribeGsConfig();
       window.removeEventListener('focus', handleWindowFocus);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
@@ -920,13 +956,15 @@ export default function App() {
         );
       case 'gift_management':
         return (
-          <GiftManagementSection />
+          <GiftManagementSection 
+            onSyncCloud={() => handleReloadFromCloud(false)}
+          />
         );
       case 'bigquery':
         return (
           <BigQueryDatabaseView
             accounts={accounts}
-            gifts={[]}
+            gifts={gifts}
             isSuperAdmin={isSuperAdmin}
           />
         );

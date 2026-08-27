@@ -14,7 +14,10 @@ import {
   Check, 
   X,
   FileSpreadsheet,
-  HelpCircle
+  HelpCircle,
+  RefreshCw,
+  CloudCheck,
+  Cloud
 } from 'lucide-react';
 import { GiftItem } from '../types';
 import { useToast } from '../context/ToastContext';
@@ -25,6 +28,9 @@ import {
   addNewGift, 
   removeGift, 
   updateGiftItem, 
+  clearAllGifts,
+  resetGiftsToSample,
+  fetchGiftsFromFirestore,
   INITIAL_SAMPLE_GIFTS 
 } from '../services/giftService';
 
@@ -41,13 +47,19 @@ const QUICK_PRESETS = [
 
 interface GiftManagementSectionProps {
   className?: string;
+  onSyncCloud?: () => Promise<void> | void;
 }
 
-export const GiftManagementSection: React.FC<GiftManagementSectionProps> = ({ className = '' }) => {
+export const GiftManagementSection: React.FC<GiftManagementSectionProps> = ({ 
+  className = '',
+  onSyncCloud 
+}) => {
   const { showSuccess, showWarning, showInfo } = useToast();
 
   // State for gifts list
   const [giftList, setGiftList] = useState<GiftItem[]>(() => getStoredGifts());
+  const [isSyncing, setIsSyncing] = useState<boolean>(false);
+  const [isOperating, setIsOperating] = useState<boolean>(false);
 
   // Dynamic Input Form States
   const [jenisHadiah, setJenisHadiah] = useState<string>('');
@@ -60,13 +72,42 @@ export const GiftManagementSection: React.FC<GiftManagementSectionProps> = ({ cl
   const [editNama, setEditNama] = useState<string>('');
   const [editKuantiti, setEditKuantiti] = useState<string>('');
 
-  // Subscribe to gifts updates
+  // Subscribe to gifts updates in real-time across all devices
   useEffect(() => {
     const unsubscribe = subscribeToGifts((gifts) => {
       setGiftList(gifts);
     });
-    return () => unsubscribe();
+
+    // Auto sync when window receives focus (switching from PC to Tablet)
+    const handleFocus = () => {
+      fetchGiftsFromFirestore().then((cloudGifts) => {
+        if (cloudGifts) setGiftList(cloudGifts);
+      }).catch(() => {});
+    };
+
+    window.addEventListener('focus', handleFocus);
+    return () => {
+      unsubscribe();
+      window.removeEventListener('focus', handleFocus);
+    };
   }, []);
+
+  // Manual cloud refresh handler
+  const handleManualSync = async () => {
+    setIsSyncing(true);
+    try {
+      if (onSyncCloud) {
+        await onSyncCloud();
+      }
+      const cloudGifts = await fetchGiftsFromFirestore();
+      setGiftList(cloudGifts);
+      showSuccess('Penyegerakan Awan Selesai', `Sebanyak ${cloudGifts.length} rekod inventori hadiah telah disegerakkan.`);
+    } catch (e) {
+      showWarning('Penyegerakan Tempatan', 'Senarai hadiah beroperasi dalam mod storan selamat.');
+    } finally {
+      setIsSyncing(false);
+    }
+  };
 
   // Statistics calculation
   const stats = useMemo(() => {
@@ -86,7 +127,7 @@ export const GiftManagementSection: React.FC<GiftManagementSectionProps> = ({ cl
     return { totalItems, totalQuantity, totalRemaining, totalClaimed };
   }, [giftList]);
 
-  // Handle Add New Gift Row
+  // Handle Add New Gift Row (Persists immediately to Firestore & LocalStorage)
   const handleAddGift = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
 
@@ -104,20 +145,34 @@ export const GiftManagementSection: React.FC<GiftManagementSectionProps> = ({ cl
     }
 
     setFormError(null);
+    setIsOperating(true);
 
-    await addNewGift(trimmedJenis, parsedQty, catatan.trim() || undefined);
-    showSuccess('Hadiah Ditambah', `"${trimmedJenis}" (${parsedQty} unit) berjaya ditambah ke dalam jadual.`);
+    try {
+      await addNewGift(trimmedJenis, parsedQty, catatan.trim() || undefined);
+      showSuccess('Hadiah Ditambah & Disegerak', `"${trimmedJenis}" (${parsedQty} unit) berjaya ditambah dan disegerak ke pangkalan data awan.`);
 
-    // Reset input form
-    setJenisHadiah('');
-    setKuantiti('50');
-    setCatatan('');
+      // Reset input form
+      setJenisHadiah('');
+      setKuantiti('50');
+      setCatatan('');
+    } catch (err) {
+      showWarning('Ralat Menambah', 'Gagal menyegerak ke awan. Sila cuba lagi.');
+    } finally {
+      setIsOperating(false);
+    }
   };
 
-  // Handle Delete Single Gift Row
+  // Handle Delete Single Gift Row (Deletes immediately from Firestore & LocalStorage)
   const handleDeleteGift = async (id: string, nama: string) => {
-    await removeGift(id);
-    showInfo('Hadiah Dibuang', `Rekod "${nama}" telah dipadam daripada senarai.`);
+    setIsOperating(true);
+    try {
+      await removeGift(id);
+      showInfo('Hadiah Dibuang', `Rekod "${nama}" telah dipadam daripada awan dan semua perkakasan.`);
+    } catch (err) {
+      showWarning('Ralat Memadam', 'Gagal memadam daripada pangkalan data awan.');
+    } finally {
+      setIsOperating(false);
+    }
   };
 
   // Handle Start Edit
@@ -137,27 +192,48 @@ export const GiftManagementSection: React.FC<GiftManagementSectionProps> = ({ cl
       return;
     }
 
-    await updateGiftItem(id, {
-      namaHadiah: trimmed,
-      kuantiti: qty,
-      kuantitiAsal: qty,
-    });
+    setIsOperating(true);
+    try {
+      await updateGiftItem(id, {
+        namaHadiah: trimmed,
+        kuantiti: qty,
+        kuantitiAsal: qty,
+      });
 
-    setEditingId(null);
-    showSuccess('Dikemaskini', 'Maklumat hadiah berjaya disimpan.');
+      setEditingId(null);
+      showSuccess('Dikemaskini & Disegerak', 'Maklumat hadiah berjaya dikemaskini pada semua peranti.');
+    } catch (err) {
+      showWarning('Ralat Mengemaskini', 'Gagal mengemaskini maklumat ke pangkalan data awan.');
+    } finally {
+      setIsOperating(false);
+    }
   };
 
-  // Handle Reset to Default
-  const handleResetToSample = () => {
-    saveGiftsLocally(INITIAL_SAMPLE_GIFTS);
-    showInfo('Tetapan Asal', 'Senarai hadiah telah ditetapkan semula ke contoh asal.');
+  // Handle Reset to Default (Syncs sample gifts to Firestore)
+  const handleResetToSample = async () => {
+    setIsOperating(true);
+    try {
+      await resetGiftsToSample();
+      showInfo('Tetapan Asal Disegerak', 'Senarai hadiah telah ditetapkan semula ke contoh asal dan disegerak ke awan.');
+    } catch (err) {
+      showWarning('Ralat Tetapan Semula', 'Gagal menetapkan semula ke awan.');
+    } finally {
+      setIsOperating(false);
+    }
   };
 
-  // Handle Clear All
-  const handleClearAll = () => {
-    if (window.confirm('Adakah anda pasti ingin mengosongkan semua senarai hadiah?')) {
-      saveGiftsLocally([]);
-      showWarning('Senarai Dikosongkan', 'Semua rekod hadiah telah dipadam.');
+  // Handle Clear All (Deletes all records from Firestore & LocalStorage)
+  const handleClearAll = async () => {
+    if (window.confirm('Adakah anda pasti ingin mengosongkan SEMUA senarai hadiah? Tindakan ini akan memadam rekod pada komputer dan tablet.')) {
+      setIsOperating(true);
+      try {
+        await clearAllGifts();
+        showWarning('Senarai Dikosongkan', 'Semua rekod hadiah telah dipadam daripada awan dan semua perkakasan.');
+      } catch (err) {
+        showWarning('Ralat Mengosongkan', 'Gagal mengosongkan pangkalan data awan.');
+      } finally {
+        setIsOperating(false);
+      }
     }
   };
 
@@ -189,7 +265,7 @@ export const GiftManagementSection: React.FC<GiftManagementSectionProps> = ({ cl
             </p>
           </div>
 
-          {/* Quick Metrics */}
+            {/* Quick Metrics & Cloud Sync Status */}
           <div className="flex flex-wrap items-center gap-2.5 shrink-0">
             <div className="bg-white border border-stone-200 rounded-xl px-3.5 py-2 text-center shadow-2xs">
               <div className="text-[10px] font-mono text-stone-500 uppercase font-semibold">Jenis Hadiah</div>
@@ -209,6 +285,26 @@ export const GiftManagementSection: React.FC<GiftManagementSectionProps> = ({ cl
               </div>
             </div>
           </div>
+        </div>
+
+        {/* 🌐 Cross-device live sync banner */}
+        <div className="mt-4 pt-3 border-t border-stone-200/80 flex flex-wrap items-center justify-between gap-2 text-xs">
+          <div className="flex items-center gap-2 text-stone-600">
+            <span className="inline-block w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+            <span className="font-semibold text-stone-800">Auto-Sync Awan Aktif:</span>
+            <span className="text-stone-500">Perubahan hadiah pada komputer akan disegerakkan terus ke tablet & sebaliknya secara langsung.</span>
+          </div>
+
+          <button
+            type="button"
+            onClick={handleManualSync}
+            disabled={isSyncing || isOperating}
+            className="px-3 py-1.5 bg-white hover:bg-stone-100 text-stone-800 border border-stone-300 rounded-xl font-semibold text-xs shadow-2xs flex items-center gap-1.5 transition-all cursor-pointer disabled:opacity-50"
+            title="Segerakkan senarai hadiah terkini daripada pangkalan data awan"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 text-emerald-600 ${isSyncing ? 'animate-spin' : ''}`} />
+            <span>{isSyncing ? 'Menyegerak...' : 'Segerak Awan'}</span>
+          </button>
         </div>
       </div>
 
