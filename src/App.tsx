@@ -21,6 +21,7 @@ import { CustomerSpreadsheetView } from './components/CustomerSpreadsheetView';
 import { ExcelImportManagerView } from './components/ExcelImportManagerView';
 import { GiftManagementSection } from './components/GiftManagementSection';
 import { GoogleSheetsDatabaseView } from './components/GoogleSheetsDatabaseView';
+import { BigQueryDatabaseView } from './components/BigQueryDatabaseView';
 import { GlideGuideModal } from './components/GlideGuideModal';
 import { AdminLoginModal } from './components/AdminLoginModal';
 import { ResetDisplayModal, ResetSectionKey } from './components/ResetDisplayModal';
@@ -74,6 +75,7 @@ const TAB_LABELS: Record<ActiveTab, string> = {
   audit_logs: 'Log Kemaskini & Audit',
   spreadsheet: 'Pangkalan Data Helaian',
   google_sheets: 'Pangkalan Data Google Sheets',
+  bigquery: 'Pangkalan Data Google BigQuery',
   gift_management: 'Pengurusan Hadiah',
 };
 
@@ -702,8 +704,8 @@ export default function App() {
       );
     }
 
-    // 🔒 SUPER ADMIN ONLY TABS: Import & Kemaskini Excel and Google Sheets DB
-    if (activeTab === 'import_excel' || activeTab === 'google_sheets') {
+    // 🔒 SUPER ADMIN ONLY TABS: Import & Kemaskini Excel, Google Sheets DB, BigQuery, and Gift Management
+    if (activeTab === 'import_excel' || activeTab === 'google_sheets' || activeTab === 'bigquery' || activeTab === 'gift_management') {
       if (!isSuperAdmin) {
         return (
           <div className="max-w-xl mx-auto py-12 px-4">
@@ -892,6 +894,14 @@ export default function App() {
         return (
           <GiftManagementSection />
         );
+      case 'bigquery':
+        return (
+          <BigQueryDatabaseView
+            accounts={accounts}
+            gifts={[]}
+            isSuperAdmin={isSuperAdmin}
+          />
+        );
       default:
         return null;
     }
@@ -901,7 +911,7 @@ export default function App() {
     if (tab === 'lookup') {
       setPrefilledLookupAccountNo(null);
       setActiveTab(tab);
-    } else if (tab === 'import_excel' || tab === 'google_sheets' || tab === 'gift_management') {
+    } else if (tab === 'import_excel' || tab === 'google_sheets' || tab === 'bigquery' || tab === 'gift_management') {
       if (isSuperAdmin) {
         setActiveTab(tab);
       } else {

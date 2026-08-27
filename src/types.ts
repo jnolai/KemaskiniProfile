@@ -46,9 +46,24 @@ export interface ProfileUpdateAuditLog {
   rewardGiftRemainingStock?: number; // Baki stok hadiah selepas penyerahan
 }
 
-export type ActiveTab = 'lookup' | 'directory' | 'import_excel' | 'audit_logs' | 'spreadsheet' | 'google_sheets' | 'gift_management';
+export type ActiveTab = 'lookup' | 'directory' | 'import_excel' | 'audit_logs' | 'spreadsheet' | 'google_sheets' | 'bigquery' | 'gift_management';
 export type DeviceFrame = 'responsive' | 'mobile' | 'tablet';
 export type AdminRole = 'admin' | 'super_admin';
+
+// Google BigQuery Database Integration Types
+export interface BigQueryConfig {
+  projectId: string;
+  datasetId: string;
+  customersTable: string;
+  giftsTable: string;
+  auditLogsTable: string;
+  appsScriptUrl: string; // Google Apps Script Web App API Endpoint
+  apiKey: string; // Secret authentication key / token
+  isConnected: boolean;
+  lastSyncTime?: string;
+  totalSyncedRows?: number;
+  autoSyncOnUpdate: boolean;
+}
 
 // Google Sheets Database Integration Types
 export interface GoogleSheetsConfig {
