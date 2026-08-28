@@ -132,7 +132,13 @@ export interface GiftItem {
   kuantitiAsal?: number;   // Jumlah kuantiti asal yang didaftarkan
   bakiSemasa?: number;     // Baki hadiah semasa yang tinggal dalam inventori
   jumlahDitebus?: number;  // Bilangan unit hadiah yang telah diserahkan / ditebus
+  stokMinimum?: number;    // Paras stok minimum (alert)
+  kategori?: string;       // Kategori hadiah (cth: Premium, Baucar)
+  status?: 'AKTIF' | 'TIDAK_AKTIF' | 'HABIS';
   tarikhDitambah: string;  // Tarikh rekod dimasukkan
+  tarikhKemaskini?: string;
   catatan?: string;        // Catatan tambahan (pilihan)
 }
+
+export type AccountData = CustomerAccount;
 

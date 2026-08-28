@@ -22,7 +22,6 @@ import { CustomerSpreadsheetView } from './components/CustomerSpreadsheetView';
 import { ExcelImportManagerView } from './components/ExcelImportManagerView';
 import { GiftManagementSection } from './components/GiftManagementSection';
 import { GoogleSheetsDatabaseView } from './components/GoogleSheetsDatabaseView';
-import { BigQueryDatabaseView } from './components/BigQueryDatabaseView';
 import { GlideGuideModal } from './components/GlideGuideModal';
 import { AdminLoginModal } from './components/AdminLoginModal';
 import { ResetDisplayModal, ResetSectionKey } from './components/ResetDisplayModal';
@@ -82,8 +81,8 @@ const TAB_LABELS: Record<ActiveTab, string> = {
   audit_logs: 'Log Kemaskini & Audit',
   spreadsheet: 'Pangkalan Data Helaian',
   google_sheets: 'Pangkalan Data Google Sheets',
-  bigquery: 'Pangkalan Data Google BigQuery',
-  gift_management: 'Pengurusan Hadiah',
+  bigquery: 'Pengurusan Hadiah',
+  gift_management: 'Pengurusan & Penebusan Hadiah',
 };
 
 export default function App() {
@@ -955,17 +954,12 @@ export default function App() {
           />
         );
       case 'gift_management':
+      case 'bigquery':
         return (
           <GiftManagementSection 
             onSyncCloud={() => handleReloadFromCloud(false)}
-          />
-        );
-      case 'bigquery':
-        return (
-          <BigQueryDatabaseView
+            operatorName={isSuperAdmin ? 'Super Admin' : 'Admin eKemaskini'}
             accounts={accounts}
-            gifts={gifts}
-            isSuperAdmin={isSuperAdmin}
           />
         );
       default:

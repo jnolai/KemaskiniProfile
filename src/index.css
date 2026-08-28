@@ -46,3 +46,18 @@
   background: #B5ACA0;
 }
 
+/* Clean Media Print Styles */
+@media print {
+  body {
+    background-color: #FFFFFF !important;
+    color: #000000 !important;
+  }
+  header, footer, nav, button:not(.print-include) {
+    display: none !important;
+  }
+  .print-only {
+    display: block !important;
+  }
+}
+
+

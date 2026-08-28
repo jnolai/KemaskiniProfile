@@ -28,12 +28,22 @@ import { useToast } from '../context/ToastContext';
 import { GiftManagementSection } from './GiftManagementSection';
 import { 
   exportAccountsToExcel,
+  DEFAULT_SUPERADMIN_COLUMNS,
+  getCustomerAccountFieldValue,
   isPhoneColumn,
   isEmailColumn,
   isAccountNoColumn,
   isOwnerNameColumn,
   isIcColumn,
-  isStatusColumn
+  isStatusColumn,
+  isCategoryColumn,
+  isUpdateStatusColumn,
+  isRewardStatusColumn,
+  isRewardCodeColumn,
+  isRewardClaimDateColumn,
+  isRegisterDateColumn,
+  isLastUpdatedColumn,
+  isUpdatedByColumn
 } from '../utils/excelHelper';
 import { subscribeToCustomColumns } from '../services/firebaseService';
 
@@ -47,15 +57,7 @@ interface ExcelImportManagerViewProps {
   onRequireSuperAdmin?: () => void;
 }
 
-const DEFAULT_COLUMNS = [
-  'No Akaun',
-  'Nama Pemilik',
-  'No Kad Pengenalan',
-  'No Handphone',
-  'Emel Pemilik/Wakil',
-  'Kategori Akaun',
-  'Status'
-];
+const DEFAULT_COLUMNS = DEFAULT_SUPERADMIN_COLUMNS;
 
 export const ExcelImportManagerView: React.FC<ExcelImportManagerViewProps> = ({
   accounts,
@@ -209,20 +211,7 @@ export const ExcelImportManagerView: React.FC<ExcelImportManagerViewProps> = ({
 
   // Helper to extract cell value for any dynamic column
   const getCellValue = (acc: CustomerAccount, colName: string): string => {
-    if (isPhoneColumn(colName)) {
-      return acc.noTel || (acc.rawRowData ? String(acc.rawRowData[colName] ?? '') : '');
-    }
-    if (isEmailColumn(colName)) {
-      return acc.email || (acc.rawRowData ? String(acc.rawRowData[colName] ?? '') : '');
-    }
-    if (acc.rawRowData && acc.rawRowData[colName] !== undefined && acc.rawRowData[colName] !== null) {
-      return String(acc.rawRowData[colName]);
-    }
-    if (isAccountNoColumn(colName)) return acc.noAkaun;
-    if (isOwnerNameColumn(colName)) return acc.nama;
-    if (isIcColumn(colName)) return acc.kadPengenalan;
-    if (isStatusColumn(colName)) return acc.status;
-    return '';
+    return getCustomerAccountFieldValue(acc, colName);
   };
 
   // Inline Cell Editing
@@ -870,11 +859,94 @@ export const ExcelImportManagerView: React.FC<ExcelImportManagerViewProps> = ({
                             );
                           }
 
+                          // Category format
+                          if (isCategoryColumn(colName)) {
+                            const cat = cellVal || acc.kategoriAkaun || 'Kediaman';
+                            const isKediaman = cat.toLowerCase().includes('kediaman');
+                            const isKomersial = cat.toLowerCase().includes('komersial') || cat.toLowerCase().includes('perniagaan');
+                            const isIndustri = cat.toLowerCase().includes('industri');
+                            return (
+                              <td key={`cell_${acc.noAkaun}_${colName}_${colIdx}`} className="py-2.5 px-3 whitespace-nowrap">
+                                <span className={`px-2 py-0.5 rounded text-[10px] font-semibold border ${
+                                  isKediaman
+                                    ? 'bg-blue-50 text-blue-900 border-blue-200'
+                                    : isKomersial
+                                    ? 'bg-amber-50 text-amber-900 border-amber-200'
+                                    : isIndustri
+                                    ? 'bg-purple-50 text-purple-900 border-purple-200'
+                                    : 'bg-stone-100 text-stone-800 border-stone-300'
+                                }`}>
+                                  {cat}
+                                </span>
+                              </td>
+                            );
+                          }
+
+                          // Status format
+                          if (isStatusColumn(colName)) {
+                            const st = cellVal || acc.status || 'Aktif';
+                            return (
+                              <td key={`cell_${acc.noAkaun}_${colName}_${colIdx}`} className="py-2.5 px-3 whitespace-nowrap">
+                                <span className={`px-2 py-0.5 rounded text-[10px] font-semibold border ${
+                                  st === 'Aktif'
+                                    ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
+                                    : st === 'Tertunggak'
+                                    ? 'bg-rose-50 text-rose-800 border-rose-300'
+                                    : st === 'Dalam Semakan'
+                                    ? 'bg-amber-50 text-amber-800 border-amber-300'
+                                    : 'bg-stone-100 text-stone-700 border-stone-300'
+                                }`}>
+                                  {st}
+                                </span>
+                              </td>
+                            );
+                          }
+
+                          // Status Kemaskini format
+                          if (isUpdateStatusColumn(colName)) {
+                            const isUpd = cellVal === 'TELAH DIKEMASKINI' || acc.telahDikemaskini;
+                            return (
+                              <td key={`cell_${acc.noAkaun}_${colName}_${colIdx}`} className="py-2.5 px-3 whitespace-nowrap">
+                                {isUpd ? (
+                                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-950 border border-emerald-300 font-bold text-[10px]">
+                                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-600"></span>
+                                    <span>TELAH DIKEMASKINI</span>
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-stone-100 text-stone-600 border border-stone-300 text-[10px]">
+                                    <span className="w-1.5 h-1.5 rounded-full bg-stone-400"></span>
+                                    <span>REKOD ASAL</span>
+                                  </span>
+                                )}
+                              </td>
+                            );
+                          }
+
+                          // Status Hadiah format
+                          if (isRewardStatusColumn(colName)) {
+                            const rewSt = cellVal || (acc.telahDikemaskini ? 'Layak (Belum Dituntut)' : 'Belum Layak');
+                            const isClaimed = rewSt.toLowerCase().includes('tuntut');
+                            const isEligible = rewSt.toLowerCase().includes('layak') && !isClaimed;
+                            return (
+                              <td key={`cell_${acc.noAkaun}_${colName}_${colIdx}`} className="py-2.5 px-3 whitespace-nowrap">
+                                <span className={`px-2 py-0.5 rounded text-[10px] font-semibold border ${
+                                  isClaimed
+                                    ? 'bg-emerald-50 text-emerald-900 border-emerald-300'
+                                    : isEligible
+                                    ? 'bg-amber-50 text-amber-900 border-amber-300 font-bold'
+                                    : 'bg-stone-100 text-stone-600 border-stone-300'
+                                }`}>
+                                  {isClaimed ? '✅ ' : isEligible ? '🎁 ' : ''}{rewSt}
+                                </span>
+                              </td>
+                            );
+                          }
+
                           // Account Number format
                           if (isAccountNoColumn(colName)) {
                             return (
                               <td key={`cell_${acc.noAkaun}_${colName}_${colIdx}`} className="py-2.5 px-3 font-bold whitespace-nowrap">
-                                <span className={`px-2 py-0.5 rounded border ${
+                                <span className={`px-2 py-0.5 rounded font-mono text-xs border ${
                                   isUpdated
                                     ? 'bg-emerald-100 text-emerald-950 border-emerald-300'
                                     : 'bg-stone-100 text-stone-900 border-stone-300'
@@ -885,19 +957,58 @@ export const ExcelImportManagerView: React.FC<ExcelImportManagerViewProps> = ({
                             );
                           }
 
-                          // Status format
-                          if (isStatusColumn(colName)) {
-                            const st = cellVal || acc.status;
+                          // Kod Hadiah format
+                          if (isRewardCodeColumn(colName)) {
+                            const code = cellVal || (acc.telahDikemaskini ? `GIFT-${acc.noAkaun}` : '-');
+                            const hasCode = code && code !== '-';
                             return (
-                              <td key={`cell_${acc.noAkaun}_${colName}_${colIdx}`} className="py-2.5 px-3 whitespace-nowrap">
-                                <span className={`px-2 py-0.5 rounded text-[10px] font-semibold border ${
-                                  st === 'Aktif'
-                                    ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
-                                    : st === 'Tertunggak'
-                                    ? 'bg-rose-50 text-rose-800 border-rose-300'
-                                    : 'bg-stone-100 text-stone-700 border-stone-300'
-                                }`}>
-                                  {st}
+                              <td key={`cell_${acc.noAkaun}_${colName}_${colIdx}`} className="py-2.5 px-3 whitespace-nowrap font-mono text-xs">
+                                {hasCode ? (
+                                  <span className="px-2 py-0.5 bg-amber-50 text-amber-950 border border-amber-300 rounded font-bold">
+                                    {code}
+                                  </span>
+                                ) : (
+                                  <span className="text-stone-400">-</span>
+                                )}
+                              </td>
+                            );
+                          }
+
+                          // Tarikh Hadiah Dituntut format
+                          if (isRewardClaimDateColumn(colName)) {
+                            return (
+                              <td key={`cell_${acc.noAkaun}_${colName}_${colIdx}`} className="py-2.5 px-3 font-mono text-[11px] text-stone-700 whitespace-nowrap">
+                                {cellVal || '-'}
+                              </td>
+                            );
+                          }
+
+                          // Tarikh Pendaftaran format
+                          if (isRegisterDateColumn(colName)) {
+                            return (
+                              <td key={`cell_${acc.noAkaun}_${colName}_${colIdx}`} className="py-2.5 px-3 font-mono text-[11px] text-stone-700 whitespace-nowrap">
+                                {cellVal || acc.tarikhDaftar || '-'}
+                              </td>
+                            );
+                          }
+
+                          // Kemaskini Akhir format
+                          if (isLastUpdatedColumn(colName)) {
+                            return (
+                              <td key={`cell_${acc.noAkaun}_${colName}_${colIdx}`} className="py-2.5 px-3 font-mono text-[11px] text-stone-700 whitespace-nowrap">
+                                {cellVal || acc.lastUpdated || '-'}
+                              </td>
+                            );
+                          }
+
+                          // Dikemaskini Oleh format
+                          if (isUpdatedByColumn(colName)) {
+                            const by = cellVal || acc.kemaskiniOleh || (acc.telahDikemaskini ? 'Pelanggan' : 'Sistem');
+                            return (
+                              <td key={`cell_${acc.noAkaun}_${colName}_${colIdx}`} className="py-2.5 px-3 whitespace-nowrap text-[11px] font-medium text-stone-800">
+                                <span className="inline-flex items-center gap-1.5">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-600"></span>
+                                  <span>{by}</span>
                                 </span>
                               </td>
                             );

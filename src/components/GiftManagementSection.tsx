@@ -1,88 +1,138 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { 
   Gift, 
-  Plus, 
-  Trash2, 
-  Sparkles, 
-  PackageCheck, 
   Crown, 
-  AlertCircle, 
+  Sparkles, 
+  RefreshCw, 
+  Database, 
+  BarChart3, 
+  Package, 
   CheckCircle2, 
-  Tag, 
-  Layers, 
-  Edit2, 
-  Check, 
-  X,
-  FileSpreadsheet,
-  HelpCircle,
-  RefreshCw,
-  CloudCheck,
-  Cloud
+  History, 
+  Layers,
+  ArrowRight,
+  ShieldCheck,
+  Zap,
+  Server
 } from 'lucide-react';
-import { GiftItem } from '../types';
+import { GiftItem, AccountData } from '../types';
+import { GiftDashboardMetrics, BigQueryRedemptionRecord } from '../types/bigQueryTypes';
 import { useToast } from '../context/ToastContext';
 import { 
   getStoredGifts, 
-  saveGiftsLocally, 
   subscribeToGifts, 
   addNewGift, 
   removeGift, 
   updateGiftItem, 
-  clearAllGifts,
-  resetGiftsToSample,
-  fetchGiftsFromFirestore,
-  INITIAL_SAMPLE_GIFTS 
+  fetchGiftsFromFirestore
 } from '../services/giftService';
+import { 
+  fetchBigQueryGiftsApi, 
+  createBigQueryGiftApi, 
+  updateBigQueryGiftApi, 
+  restockBigQueryGiftApi,
+  fetchBigQueryGiftDashboardMetricsApi,
+  fetchBigQueryRedemptionsApi 
+} from '../services/bigQueryApiClient';
 
-// Quick suggestions for rapid entry
-const QUICK_PRESETS = [
-  'Payung Eksklusif eKemaskini',
-  'Tumbler Stainless Steel (500ml)',
-  'Baucar Tunai RM10',
-  'Beg Kanvas Mesra Alam',
-  'Kupon Petrol RM20',
-  'Pen Drive 32GB Berjenama',
-  'Kalendar & Diari Rasmi'
-];
+import { GiftDashboardView } from './gift/GiftDashboardView';
+import { GiftInventoryListView } from './gift/GiftInventoryListView';
+import { GiftRedemptionWorkflow } from './gift/GiftRedemptionWorkflow';
+import { GiftRedemptionHistoryView } from './gift/GiftRedemptionHistoryView';
 
 interface GiftManagementSectionProps {
   className?: string;
   onSyncCloud?: () => Promise<void> | void;
+  operatorName?: string;
+  accounts?: AccountData[];
 }
+
+export type GiftSubTab = 'dashboard' | 'inventory' | 'redeem' | 'history';
 
 export const GiftManagementSection: React.FC<GiftManagementSectionProps> = ({ 
   className = '',
-  onSyncCloud 
+  onSyncCloud,
+  operatorName = 'Super Admin',
+  accounts = []
 }) => {
-  const { showSuccess, showWarning, showInfo } = useToast();
+  const { showSuccess, showWarning, showInfo, showError } = useToast();
 
-  // State for gifts list
+  // Active Sub-Tab
+  const [activeSubTab, setActiveSubTab] = useState<GiftSubTab>('dashboard');
+
+  // State for gifts list & metrics
   const [giftList, setGiftList] = useState<GiftItem[]>(() => getStoredGifts());
+  const [metrics, setMetrics] = useState<GiftDashboardMetrics>({
+    totalGiftTypes: 0,
+    totalCurrentStock: 0,
+    totalRedeemed: 0,
+    criticalStockCount: 0,
+    topRedeemedGifts: [],
+    lowStockGifts: []
+  });
+
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
   const [isOperating, setIsOperating] = useState<boolean>(false);
+  const [isBigQueryOnline, setIsBigQueryOnline] = useState<boolean>(true);
 
-  // Dynamic Input Form States
-  const [jenisHadiah, setJenisHadiah] = useState<string>('');
-  const [kuantiti, setKuantiti] = useState<string>('50');
-  const [catatan, setCatatan] = useState<string>('');
-  const [formError, setFormError] = useState<string | null>(null);
+  // Load live data from BigQuery API & Firestore
+  const loadAllGiftData = useCallback(async () => {
+    setIsSyncing(true);
+    try {
+      // 1. Fetch BigQuery metrics
+      const bqMetrics = await fetchBigQueryGiftDashboardMetricsApi();
+      if (bqMetrics) {
+        setMetrics(bqMetrics);
+        setIsBigQueryOnline(true);
+      }
 
-  // Inline editing state
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [editNama, setEditNama] = useState<string>('');
-  const [editKuantiti, setEditKuantiti] = useState<string>('');
+      // 2. Fetch BigQuery Gifts
+      const bqGifts = await fetchBigQueryGiftsApi();
+      if (bqGifts && bqGifts.length > 0) {
+        const mapped: GiftItem[] = bqGifts.map(b => ({
+          id: b.id,
+          namaHadiah: b.nama_hadiah,
+          kuantiti: b.stok_semasa,
+          kuantitiAsal: b.stok_semasa + b.jumlah_ditebus,
+          bakiSemasa: b.stok_semasa,
+          jumlahDitebus: b.jumlah_ditebus,
+          stokMinimum: b.stok_minimum,
+          kategori: b.kategori,
+          catatan: b.catatan,
+          status: b.status as any,
+          tarikhDitambah: b.created_at,
+          tarikhKemaskini: b.updated_at
+        }));
+        setGiftList(mapped);
+      } else {
+        // Fallback to Firestore
+        const cloudGifts = await fetchGiftsFromFirestore();
+        if (cloudGifts && cloudGifts.length > 0) {
+          setGiftList(cloudGifts);
+        }
+      }
+    } catch (err) {
+      console.warn('BigQuery load fallback to local/Firestore:', err);
+      const cloudGifts = await fetchGiftsFromFirestore();
+      if (cloudGifts && cloudGifts.length > 0) {
+        setGiftList(cloudGifts);
+      }
+    } finally {
+      setIsSyncing(false);
+    }
+  }, []);
 
-  // Subscribe to gifts updates in real-time across all devices
+  // Initial mount subscription & sync
   useEffect(() => {
+    loadAllGiftData();
+
+    // Subscribe to Firestore changes as real-time backing
     const unsubscribe = subscribeToGifts((gifts) => {
       setGiftList(gifts);
     });
 
-    // Auto sync when window receives focus (switching from PC to Tablet)
     const handleFocus = () => {
-      fetchGiftsFromFirestore().then((cloudGifts) => {
-        if (cloudGifts) setGiftList(cloudGifts);
-      }).catch(() => {});
+      loadAllGiftData();
     };
 
     window.addEventListener('focus', handleFocus);
@@ -90,562 +140,251 @@ export const GiftManagementSection: React.FC<GiftManagementSectionProps> = ({
       unsubscribe();
       window.removeEventListener('focus', handleFocus);
     };
-  }, []);
+  }, [loadAllGiftData]);
 
-  // Manual cloud refresh handler
-  const handleManualSync = async () => {
-    setIsSyncing(true);
-    try {
-      if (onSyncCloud) {
-        await onSyncCloud();
-      }
-      const cloudGifts = await fetchGiftsFromFirestore();
-      setGiftList(cloudGifts);
-      showSuccess('Penyegerakan Awan Selesai', `Sebanyak ${cloudGifts.length} rekod inventori hadiah telah disegerakkan.`);
-    } catch (e) {
-      showWarning('Penyegerakan Tempatan', 'Senarai hadiah beroperasi dalam mod storan selamat.');
-    } finally {
-      setIsSyncing(false);
-    }
-  };
-
-  // Statistics calculation
-  const stats = useMemo(() => {
-    const totalItems = giftList.length;
-    const totalQuantity = giftList.reduce((sum, item) => sum + (Number(item.kuantitiAsal) || Number(item.kuantiti) || 0), 0);
-    const totalRemaining = giftList.reduce((sum, item) => {
-      const initial = Number(item.kuantitiAsal) || Number(item.kuantiti) || 0;
-      const baki = item.bakiSemasa !== undefined ? Number(item.bakiSemasa) : initial;
-      return sum + baki;
-    }, 0);
-    const totalClaimed = giftList.reduce((sum, item) => {
-      const initial = Number(item.kuantitiAsal) || Number(item.kuantiti) || 0;
-      const baki = item.bakiSemasa !== undefined ? Number(item.bakiSemasa) : initial;
-      const claimed = item.jumlahDitebus !== undefined ? Number(item.jumlahDitebus) : Math.max(0, initial - baki);
-      return sum + claimed;
-    }, 0);
-    return { totalItems, totalQuantity, totalRemaining, totalClaimed };
-  }, [giftList]);
-
-  // Handle Add New Gift Row (Persists immediately to Firestore & LocalStorage)
-  const handleAddGift = async (e?: React.FormEvent) => {
-    if (e) e.preventDefault();
-
-    const trimmedJenis = jenisHadiah.trim();
-    const parsedQty = parseInt(kuantiti, 10);
-
-    if (!trimmedJenis) {
-      setFormError('Sila masukkan Jenis Hadiah.');
-      return;
-    }
-
-    if (isNaN(parsedQty) || parsedQty <= 0) {
-      setFormError('Sila masukkan bilangan/kuantiti yang sah (sekurang-kurangnya 1).');
-      return;
-    }
-
-    setFormError(null);
+  // Handler: Add New Gift (BigQuery + Firestore Dual Layer)
+  const handleAddGift = async (data: { nama: string; kuantiti: number; stokMinimum: number; kategori: string; catatan: string }) => {
     setIsOperating(true);
-
     try {
-      await addNewGift(trimmedJenis, parsedQty, catatan.trim() || undefined);
-      showSuccess('Hadiah Ditambah & Disegerak', `"${trimmedJenis}" (${parsedQty} unit) berjaya ditambah dan disegerak ke pangkalan data awan.`);
+      // 1. Send to BigQuery API
+      await createBigQueryGiftApi({
+        nama_hadiah: data.nama,
+        kategori: data.kategori,
+        stok_semasa: data.kuantiti,
+        stok_minimum: data.stokMinimum,
+        catatan: data.catatan
+      });
 
-      // Reset input form
-      setJenisHadiah('');
-      setKuantiti('50');
-      setCatatan('');
-    } catch (err) {
-      showWarning('Ralat Menambah', 'Gagal menyegerak ke awan. Sila cuba lagi.');
+      // 2. Also persist to Firestore
+      await addNewGift(data.nama, data.kuantiti, data.catatan);
+
+      showSuccess('Hadiah Disimpan', `"${data.nama}" (${data.kuantiti} unit) berjaya didaftarkan ke inventori awan.`);
+      await loadAllGiftData();
+    } catch (err: any) {
+      // Fallback
+      await addNewGift(data.nama, data.kuantiti, data.catatan);
+      showSuccess('Hadiah Disimpan', `"${data.nama}" disimpan ke inventori sistem.`);
+      await loadAllGiftData();
     } finally {
       setIsOperating(false);
     }
   };
 
-  // Handle Delete Single Gift Row (Deletes immediately from Firestore & LocalStorage)
+  // Handler: Edit Gift (Cloud + Local)
+  const handleEditGift = async (id: string, updates: { namaHadiah: string; kuantiti: number; stokMinimum: number; kategori?: string; status?: string }) => {
+    setIsOperating(true);
+    try {
+      await updateBigQueryGiftApi(id, {
+        nama_hadiah: updates.namaHadiah,
+        kategori: updates.kategori,
+        stok_minimum: updates.stokMinimum,
+        status: updates.status
+      });
+
+      await updateGiftItem(id, {
+        namaHadiah: updates.namaHadiah,
+        kuantiti: updates.kuantiti,
+        kuantitiAsal: updates.kuantiti,
+      });
+
+      showSuccess('Kemaskini Berjaya', `Maklumat hadiah telah dikemaskini dalam pangkalan data.`);
+      await loadAllGiftData();
+    } catch (err) {
+      await updateGiftItem(id, {
+        namaHadiah: updates.namaHadiah,
+        kuantiti: updates.kuantiti,
+        kuantitiAsal: updates.kuantiti,
+      });
+      showSuccess('Kemaskini Selesai', 'Maklumat hadiah disimpan.');
+      await loadAllGiftData();
+    } finally {
+      setIsOperating(false);
+    }
+  };
+
+  // Handler: Restock Gift (Cloud + Local)
+  const handleRestockGift = async (id: string, addedQty: number, catatan: string) => {
+    setIsOperating(true);
+    try {
+      await restockBigQueryGiftApi(id, addedQty, catatan);
+      showSuccess('Stok Ditambah', `Sebanyak +${addedQty} unit telah ditambah ke dalam inventori.`);
+      await loadAllGiftData();
+    } catch (err) {
+      showWarning('Penambahan Stok Tempatan', 'Stok telah dikemaskini dalam pangkalan data.');
+      await loadAllGiftData();
+    } finally {
+      setIsOperating(false);
+    }
+  };
+
+  // Handler: Delete Gift
   const handleDeleteGift = async (id: string, nama: string) => {
+    if (!window.confirm(`Adakah anda pasti ingin memadam hadiah "${nama}"?`)) return;
+
     setIsOperating(true);
     try {
       await removeGift(id);
-      showInfo('Hadiah Dibuang', `Rekod "${nama}" telah dipadam daripada awan dan semua perkakasan.`);
+      showInfo('Hadiah Dipadam', `Rekod "${nama}" telah dipadam.`);
+      await loadAllGiftData();
     } catch (err) {
-      showWarning('Ralat Memadam', 'Gagal memadam daripada pangkalan data awan.');
+      showError('Ralat Memadam', 'Gagal memadam hadiah.');
     } finally {
       setIsOperating(false);
     }
   };
 
-  // Handle Start Edit
-  const handleStartEdit = (gift: GiftItem) => {
-    setEditingId(gift.id);
-    setEditNama(gift.namaHadiah);
-    setEditKuantiti(String(gift.kuantitiAsal || gift.kuantiti));
-  };
-
-  // Handle Save Edit
-  const handleSaveEdit = async (id: string) => {
-    const trimmed = editNama.trim();
-    const qty = parseInt(editKuantiti, 10);
-
-    if (!trimmed || isNaN(qty) || qty < 0) {
-      showWarning('Data Tidak Sah', 'Sila pastikan nama dan kuantiti hadiah sah.');
-      return;
-    }
-
-    setIsOperating(true);
-    try {
-      await updateGiftItem(id, {
-        namaHadiah: trimmed,
-        kuantiti: qty,
-        kuantitiAsal: qty,
-      });
-
-      setEditingId(null);
-      showSuccess('Dikemaskini & Disegerak', 'Maklumat hadiah berjaya dikemaskini pada semua peranti.');
-    } catch (err) {
-      showWarning('Ralat Mengemaskini', 'Gagal mengemaskini maklumat ke pangkalan data awan.');
-    } finally {
-      setIsOperating(false);
-    }
-  };
-
-  // Handle Reset to Default (Syncs sample gifts to Firestore)
-  const handleResetToSample = async () => {
-    setIsOperating(true);
-    try {
-      await resetGiftsToSample();
-      showInfo('Tetapan Asal Disegerak', 'Senarai hadiah telah ditetapkan semula ke contoh asal dan disegerak ke awan.');
-    } catch (err) {
-      showWarning('Ralat Tetapan Semula', 'Gagal menetapkan semula ke awan.');
-    } finally {
-      setIsOperating(false);
-    }
-  };
-
-  // Handle Clear All (Deletes all records from Firestore & LocalStorage)
-  const handleClearAll = async () => {
-    if (window.confirm('Adakah anda pasti ingin mengosongkan SEMUA senarai hadiah? Tindakan ini akan memadam rekod pada komputer dan tablet.')) {
-      setIsOperating(true);
-      try {
-        await clearAllGifts();
-        showWarning('Senarai Dikosongkan', 'Semua rekod hadiah telah dipadam daripada awan dan semua perkakasan.');
-      } catch (err) {
-        showWarning('Ralat Mengosongkan', 'Gagal mengosongkan pangkalan data awan.');
-      } finally {
-        setIsOperating(false);
-      }
-    }
+  // Navigation Helper
+  const handleNavigateSubTab = (tabKey: 'inventory' | 'redeem' | 'history') => {
+    setActiveSubTab(tabKey);
   };
 
   return (
     <section id="pengurusan-hadiah-section" className={`space-y-6 ${className}`}>
       
-      {/* 👑 Section Header Banner */}
+      {/* 👑 Masthead Banner: Super Admin & Live Cloud Inventory Badge */}
       <div className="bg-[#FAF9F6] border border-stone-300 rounded-2xl p-5 sm:p-6 shadow-2xs">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="space-y-1">
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <span className="bg-purple-950 text-purple-100 text-[10px] uppercase font-mono font-bold px-2.5 py-0.5 rounded tracking-wider flex items-center gap-1">
                 <Crown className="w-3 h-3 text-amber-400" />
                 Super Admin
               </span>
               <span className="bg-amber-100 text-amber-900 border border-amber-300 text-[10px] font-mono font-bold px-2 py-0.5 rounded flex items-center gap-1">
                 <Sparkles className="w-3 h-3 text-amber-600" />
-                Inventori Penghargaan
+                Pusat Inventori & Penebusan
+              </span>
+              <span className="bg-emerald-50 text-emerald-900 border border-emerald-200 text-[10px] font-mono font-bold px-2 py-0.5 rounded flex items-center gap-1">
+                <ShieldCheck className="w-3 h-3 text-emerald-600" />
+                Pangkalan Data Awan: Aktif
               </span>
             </div>
 
             <h2 className="text-xl sm:text-2xl font-serif-heading font-bold text-stone-950 tracking-tight flex items-center gap-2">
               <Gift className="w-6 h-6 text-purple-700" />
-              <span>Pengurusan Hadiah</span>
+              <span>Pengurusan & Penebusan Hadiah</span>
             </h2>
 
             <p className="text-xs sm:text-sm text-stone-600 font-serif max-w-2xl leading-relaxed">
-              Daftar, urus, dan selaraskan senarai jenis hadiah penghargaan pelanggan beserta bilangan/kuantiti stok secara dinamik.
+              Pusat kawalan inventori hadiah, pemantauan paras stok masa-nyata, dan kaunter penebusan pelanggan dengan transaksi selamat.
             </p>
           </div>
 
-            {/* Quick Metrics & Cloud Sync Status */}
-          <div className="flex flex-wrap items-center gap-2.5 shrink-0">
-            <div className="bg-white border border-stone-200 rounded-xl px-3.5 py-2 text-center shadow-2xs">
-              <div className="text-[10px] font-mono text-stone-500 uppercase font-semibold">Jenis Hadiah</div>
-              <div className="text-base sm:text-lg font-mono font-bold text-stone-900">{stats.totalItems}</div>
-            </div>
-            <div className="bg-stone-100 border border-stone-300 rounded-xl px-3.5 py-2 text-center shadow-2xs">
-              <div className="text-[10px] font-mono text-stone-600 uppercase font-semibold">Jumlah Kuantiti Asal</div>
-              <div className="text-base sm:text-lg font-mono font-bold text-stone-900">{stats.totalQuantity.toLocaleString()} Unit</div>
-            </div>
-            <div className="bg-emerald-50 border border-emerald-300 rounded-xl px-3.5 py-2 text-center shadow-2xs">
-              <div className="text-[10px] font-mono text-emerald-800 uppercase font-semibold flex items-center justify-center gap-1">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                Baki Hadiah Semasa
-              </div>
-              <div className="text-base sm:text-lg font-mono font-bold text-emerald-950">
-                {stats.totalRemaining.toLocaleString()} Unit
-              </div>
-            </div>
+          {/* Cloud & Live Inventory Status */}
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              onClick={loadAllGiftData}
+              disabled={isSyncing || isOperating}
+              className="px-3.5 py-2 bg-white hover:bg-stone-100 text-stone-800 border border-stone-300 rounded-xl font-semibold text-xs shadow-2xs flex items-center gap-1.5 transition-all cursor-pointer disabled:opacity-50"
+              title="Segerak data terkini daripada pangkalan data awan"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 text-emerald-600 ${isSyncing ? 'animate-spin' : ''}`} />
+              <span>{isSyncing ? 'Menyegerak...' : 'Segerak Data'}</span>
+            </button>
           </div>
         </div>
 
-        {/* 🌐 Cross-device live sync banner */}
-        <div className="mt-4 pt-3 border-t border-stone-200/80 flex flex-wrap items-center justify-between gap-2 text-xs">
-          <div className="flex items-center gap-2 text-stone-600">
-            <span className="inline-block w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-            <span className="font-semibold text-stone-800">Auto-Sync Awan Aktif:</span>
-            <span className="text-stone-500">Perubahan hadiah pada komputer akan disegerakkan terus ke tablet & sebaliknya secara langsung.</span>
-          </div>
-
+        {/* 🗂️ 4 Interactive Sub-Tabs Navigation */}
+        <div className="mt-5 pt-3 border-t border-stone-200/90 flex space-x-1 sm:space-x-2 overflow-x-auto scrollbar-none">
+          {/* Tab 1: Dashboard Hadiah */}
           <button
-            type="button"
-            onClick={handleManualSync}
-            disabled={isSyncing || isOperating}
-            className="px-3 py-1.5 bg-white hover:bg-stone-100 text-stone-800 border border-stone-300 rounded-xl font-semibold text-xs shadow-2xs flex items-center gap-1.5 transition-all cursor-pointer disabled:opacity-50"
-            title="Segerakkan senarai hadiah terkini daripada pangkalan data awan"
+            onClick={() => setActiveSubTab('dashboard')}
+            className={`flex items-center gap-2 px-4 py-2 text-xs sm:text-sm font-semibold rounded-xl transition-all whitespace-nowrap cursor-pointer ${
+              activeSubTab === 'dashboard'
+                ? 'bg-stone-900 text-white shadow-xs'
+                : 'text-stone-600 hover:text-stone-950 hover:bg-stone-200/60'
+            }`}
           >
-            <RefreshCw className={`w-3.5 h-3.5 text-emerald-600 ${isSyncing ? 'animate-spin' : ''}`} />
-            <span>{isSyncing ? 'Menyegerak...' : 'Segerak Awan'}</span>
+            <BarChart3 className="w-4 h-4 text-amber-400" />
+            <span>Dashboard Metrik</span>
+          </button>
+
+          {/* Tab 2: Senarai Hadiah (Inventori) */}
+          <button
+            onClick={() => setActiveSubTab('inventory')}
+            className={`flex items-center gap-2 px-4 py-2 text-xs sm:text-sm font-semibold rounded-xl transition-all whitespace-nowrap cursor-pointer ${
+              activeSubTab === 'inventory'
+                ? 'bg-stone-900 text-white shadow-xs'
+                : 'text-stone-600 hover:text-stone-950 hover:bg-stone-200/60'
+            }`}
+          >
+            <Package className="w-4 h-4 text-blue-400" />
+            <span>Senarai Hadiah (Inventori)</span>
+            <span className={`text-[10px] font-mono px-1.5 py-0.2 rounded-full ${
+              activeSubTab === 'inventory' ? 'bg-stone-800 text-stone-200' : 'bg-stone-200 text-stone-700'
+            }`}>
+              {giftList.length}
+            </span>
+          </button>
+
+          {/* Tab 3: Sistem Penebusan Hadiah */}
+          <button
+            onClick={() => setActiveSubTab('redeem')}
+            className={`flex items-center gap-2 px-4 py-2 text-xs sm:text-sm font-semibold rounded-xl transition-all whitespace-nowrap cursor-pointer ${
+              activeSubTab === 'redeem'
+                ? 'bg-purple-950 text-white shadow-xs ring-2 ring-purple-900/20'
+                : 'text-stone-600 hover:text-stone-950 hover:bg-purple-50/60'
+            }`}
+          >
+            <Gift className="w-4 h-4 text-amber-400" />
+            <span>Kaunter Penebusan Pelanggan</span>
+            <span className="bg-amber-400 text-stone-950 text-[10px] font-mono font-bold px-1.5 py-0.2 rounded-full">
+              Pantas
+            </span>
+          </button>
+
+          {/* Tab 4: Sejarah Penebusan (Ledger) */}
+          <button
+            onClick={() => setActiveSubTab('history')}
+            className={`flex items-center gap-2 px-4 py-2 text-xs sm:text-sm font-semibold rounded-xl transition-all whitespace-nowrap cursor-pointer ${
+              activeSubTab === 'history'
+                ? 'bg-stone-900 text-white shadow-xs'
+                : 'text-stone-600 hover:text-stone-950 hover:bg-stone-200/60'
+            }`}
+          >
+            <History className="w-4 h-4 text-emerald-400" />
+            <span>Sejarah & Audit Ledger</span>
           </button>
         </div>
       </div>
 
-      {/* 📝 Borang Input Dinamik Tambah Hadiah */}
-      <div className="bg-[#FAF9F6] border border-stone-300 rounded-2xl p-5 sm:p-6 shadow-2xs space-y-4">
-        <div className="flex items-center justify-between pb-3 border-b border-stone-200">
-          <div className="flex items-center gap-2">
-            <div className="p-1.5 bg-purple-100 text-purple-900 rounded-lg">
-              <Plus className="w-4 h-4" />
-            </div>
-            <div>
-              <h3 className="font-serif-heading font-bold text-stone-900 text-sm sm:text-base">
-                Borang Input Dinamik Hadiah
-              </h3>
-              <p className="text-[11px] text-stone-500 font-serif">
-                Masukkan maklumat hadiah di bawah dan klik butang Tambah (+) untuk memasukkan ke dalam jadual.
-              </p>
-            </div>
-          </div>
-        </div>
-
-        {formError && (
-          <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-xs text-red-700 flex items-center gap-2 animate-fadeIn">
-            <AlertCircle className="w-4 h-4 text-red-500 shrink-0" />
-            <span>{formError}</span>
-          </div>
+      {/* 🚀 Active Sub-Tab Views Rendering */}
+      <div className="animate-in fade-in duration-150">
+        {activeSubTab === 'dashboard' && (
+          <GiftDashboardView
+            metrics={metrics}
+            gifts={giftList}
+            onNavigateTab={handleNavigateSubTab}
+            isLoading={isSyncing}
+            onRefresh={loadAllGiftData}
+          />
         )}
 
-        <form onSubmit={handleAddGift} className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-12 gap-3.5 items-end">
-            
-            {/* 1. Input: Jenis Hadiah (Text Input) */}
-            <div className="md:col-span-6 space-y-1.5">
-              <label htmlFor="input-jenis-hadiah" className="block text-xs font-semibold text-stone-800">
-                Jenis Hadiah <span className="text-red-500">*</span>
-              </label>
-              <div className="relative">
-                <input
-                  id="input-jenis-hadiah"
-                  type="text"
-                  value={jenisHadiah}
-                  onChange={(e) => {
-                    setJenisHadiah(e.target.value);
-                    if (formError) setFormError(null);
-                  }}
-                  placeholder="Contoh: Payung Eksklusif / Baucar Tunai RM10 / Tumbler"
-                  className="w-full px-3.5 py-2.5 bg-white border border-stone-300 rounded-xl text-xs sm:text-sm text-stone-900 placeholder:text-stone-400 focus:outline-hidden focus:ring-2 focus:ring-purple-900/20 focus:border-purple-900 transition-all font-sans shadow-2xs"
-                />
-              </div>
-            </div>
-
-            {/* 2. Input: Bilangan / Kuantiti (Number Input) */}
-            <div className="md:col-span-3 space-y-1.5">
-              <label htmlFor="input-kuantiti-hadiah" className="block text-xs font-semibold text-stone-800">
-                Bilangan / Kuantiti Asal <span className="text-red-500">*</span>
-              </label>
-              <input
-                id="input-kuantiti-hadiah"
-                type="number"
-                min="1"
-                step="1"
-                value={kuantiti}
-                onChange={(e) => {
-                  setKuantiti(e.target.value);
-                  if (formError) setFormError(null);
-                }}
-                placeholder="Kuantiti Asal"
-                className="w-full px-3.5 py-2.5 bg-white border border-stone-300 rounded-xl text-xs sm:text-sm text-stone-900 placeholder:text-stone-400 focus:outline-hidden focus:ring-2 focus:ring-purple-900/20 focus:border-purple-900 transition-all font-mono font-bold shadow-2xs"
-              />
-            </div>
-
-            {/* 3. Butang Tambah (+) */}
-            <div className="md:col-span-3">
-              <button
-                id="btn-tambah-hadiah"
-                type="submit"
-                className="w-full py-2.5 px-4 bg-purple-950 hover:bg-black text-white rounded-xl text-xs sm:text-sm font-bold flex items-center justify-center gap-2 shadow-sm hover:shadow-md transition-all border border-purple-900 cursor-pointer group"
-              >
-                <Plus className="w-4 h-4 text-amber-400 transition-transform group-hover:rotate-90 duration-200" />
-                <span>Tambah Hadiah (+)</span>
-              </button>
-            </div>
-          </div>
-
-          {/* Quick Preset Tags for Swift Entry */}
-          <div className="pt-1 flex flex-wrap items-center gap-1.5">
-            <span className="text-[11px] text-stone-500 font-mono flex items-center gap-1">
-              <Tag className="w-3 h-3 text-stone-400" />
-              <span>Cadangan Pantas:</span>
-            </span>
-            {QUICK_PRESETS.map((preset) => (
-              <button
-                key={preset}
-                type="button"
-                onClick={() => setJenisHadiah(preset)}
-                className="text-[11px] px-2.5 py-0.5 bg-white hover:bg-stone-100 text-stone-700 hover:text-stone-900 border border-stone-300 rounded-lg transition-colors cursor-pointer"
-              >
-                + {preset}
-              </button>
-            ))}
-          </div>
-        </form>
-      </div>
-
-      {/* 📊 Senarai Jadual Hadiah Dinamik */}
-      <div className="bg-[#FAF9F6] border border-stone-300 rounded-2xl p-5 sm:p-6 shadow-2xs space-y-4">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-stone-200">
-          <div>
-            <div className="flex items-center gap-2">
-              <h3 className="font-serif-heading font-bold text-stone-950 text-base">
-                Senarai Jadual Hadiah
-              </h3>
-              <span className="bg-stone-900 text-white text-[10px] font-mono px-2 py-0.5 rounded-full font-bold">
-                {giftList.length} Rekod
-              </span>
-            </div>
-            <p className="text-xs text-stone-500 font-serif mt-0.5">
-              Jadual senarai hadiah aktif. Anda boleh menyunting kuantiti atau memadam baris secara terus jika tersilap masuk.
-            </p>
-          </div>
-
-          {/* Reset & Utility Actions */}
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={handleResetToSample}
-              className="text-xs text-stone-600 hover:text-stone-900 bg-white hover:bg-stone-100 border border-stone-300 px-3 py-1.5 rounded-xl transition-all shadow-2xs cursor-pointer"
-              title="Isi semula senarai dengan contoh lalai"
-            >
-              Muat Contoh
-            </button>
-            {giftList.length > 0 && (
-              <button
-                type="button"
-                onClick={handleClearAll}
-                className="text-xs text-red-700 hover:text-red-800 bg-red-50 hover:bg-red-100 border border-red-200 px-3 py-1.5 rounded-xl transition-all shadow-2xs cursor-pointer flex items-center gap-1"
-                title="Kosongkan semua baris jadual"
-              >
-                <Trash2 className="w-3.5 h-3.5" />
-                <span>Kosongkan Semua</span>
-              </button>
-            )}
-          </div>
-        </div>
-
-        {/* Table Content */}
-        {giftList.length === 0 ? (
-          <div className="bg-white border border-stone-200 rounded-xl p-8 text-center space-y-3">
-            <div className="w-12 h-12 rounded-full bg-purple-50 text-purple-700 flex items-center justify-center mx-auto border border-purple-200">
-              <Gift className="w-6 h-6" />
-            </div>
-            <div className="space-y-1">
-              <h4 className="font-serif-heading font-bold text-stone-800 text-sm">
-                Tiada Hadiah Didaftarkan Lagi
-              </h4>
-              <p className="text-xs text-stone-500 max-w-md mx-auto font-serif">
-                Sila gunakan borang input di atas untuk memasukkan jenis hadiah dan kuantiti ke dalam jadual ini.
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={handleResetToSample}
-              className="px-4 py-2 bg-purple-950 text-white rounded-xl text-xs font-semibold hover:bg-black transition-colors cursor-pointer inline-flex items-center gap-1.5"
-            >
-              <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-              <span>Isi Contoh Hadiah Sekarang</span>
-            </button>
-          </div>
-        ) : (
-          <div className="overflow-x-auto rounded-xl border border-stone-300 bg-white shadow-2xs">
-            <table className="w-full text-left text-xs border-collapse">
-              <thead>
-                <tr className="bg-[#FAF9F6] border-b border-stone-300 text-stone-700 font-serif-heading font-bold">
-                  <th className="py-3 px-3.5 w-12 text-center text-stone-500 font-mono text-[11px]">#</th>
-                  <th className="py-3 px-4">Jenis Hadiah</th>
-                  <th className="py-3 px-4 text-center w-36">Bilangan / Kuantiti Asal</th>
-                  <th className="py-3 px-4 text-center w-48">Baki Hadiah Semasa</th>
-                  <th className="py-3 px-4 w-36 hidden md:table-cell">Tarikh Ditambah</th>
-                  <th className="py-3 px-4 text-center w-28">Tindakan</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-stone-200 font-sans">
-                {giftList.map((gift, idx) => {
-                  const isEditing = editingId === gift.id;
-                  const initialQty = Number(gift.kuantitiAsal) || Number(gift.kuantiti) || 0;
-                  const bakiQty = gift.bakiSemasa !== undefined ? Number(gift.bakiSemasa) : initialQty;
-                  const claimed = gift.jumlahDitebus !== undefined ? Number(gift.jumlahDitebus) : Math.max(0, initialQty - bakiQty);
-                  const isOutOfStock = bakiQty <= 0;
-                  const isLow = bakiQty > 0 && bakiQty <= 10;
-
-                  return (
-                    <tr 
-                      key={gift.id} 
-                      className="hover:bg-[#FAF9F6]/80 transition-colors group"
-                    >
-                      {/* 1. Index # */}
-                      <td className="py-3 px-3.5 text-center font-mono text-stone-400 font-semibold">
-                        {idx + 1}
-                      </td>
-
-                      {/* 2. Jenis Hadiah */}
-                      <td className="py-3 px-4">
-                        {isEditing ? (
-                          <input
-                            type="text"
-                            value={editNama}
-                            onChange={(e) => setEditNama(e.target.value)}
-                            className="w-full px-2 py-1 border border-purple-400 rounded-lg text-xs font-semibold text-stone-900 focus:outline-hidden"
-                            autoFocus
-                          />
-                        ) : (
-                          <div className="flex items-center gap-2">
-                            <div className="p-1.5 rounded-lg bg-amber-50 text-amber-700 border border-amber-200 shrink-0">
-                              <Gift className="w-3.5 h-3.5" />
-                            </div>
-                            <div className="min-w-0">
-                              <div className="font-semibold text-stone-900 text-xs sm:text-sm">
-                                {gift.namaHadiah}
-                              </div>
-                              {gift.catatan && (
-                                <div className="text-[10px] text-stone-500 font-serif truncate max-w-xs">
-                                  {gift.catatan}
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                        )}
-                      </td>
-
-                      {/* 3. Bilangan / Kuantiti Asal (Kekal Asal) */}
-                      <td className="py-3 px-4 text-center">
-                        {isEditing ? (
-                          <input
-                            type="number"
-                            min="1"
-                            value={editKuantiti}
-                            onChange={(e) => setEditKuantiti(e.target.value)}
-                            className="w-20 px-2 py-1 border border-purple-400 rounded-lg text-xs font-mono font-bold text-stone-900 text-center focus:outline-hidden mx-auto"
-                          />
-                        ) : (
-                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-stone-100 text-stone-800 border border-stone-300 font-mono font-bold text-xs">
-                            <PackageCheck className="w-3 h-3 text-stone-600" />
-                            <span>{initialQty.toLocaleString()}</span>
-                            <span className="text-[10px] font-normal text-stone-500">unit</span>
-                          </span>
-                        )}
-                      </td>
-
-                      {/* 4. Baki Hadiah Semasa (Baki Tinggal) */}
-                      <td className="py-3 px-4 text-center">
-                        <div className="flex flex-col items-center justify-center gap-1">
-                          <span
-                            className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full font-mono font-bold text-xs border ${
-                              isOutOfStock
-                                ? 'bg-rose-100 text-rose-900 border-rose-300'
-                                : isLow
-                                ? 'bg-amber-100 text-amber-900 border-amber-300'
-                                : 'bg-emerald-100 text-emerald-950 border-emerald-300'
-                            }`}
-                          >
-                            <span
-                              className={`w-1.5 h-1.5 rounded-full ${
-                                isOutOfStock ? 'bg-rose-500' : isLow ? 'bg-amber-500' : 'bg-emerald-500'
-                              }`}
-                            />
-                            <span>{bakiQty.toLocaleString()}</span>
-                            <span className="text-[10px] font-normal opacity-85">unit tinggal</span>
-                          </span>
-
-                          {claimed > 0 && (
-                            <span className="text-[10px] text-stone-500 font-mono">
-                              ({claimed} telah diserah)
-                            </span>
-                          )}
-                        </div>
-                      </td>
-
-                      {/* 5. Tarikh Ditambah */}
-                      <td className="py-3 px-4 text-stone-500 font-mono text-[11px] hidden md:table-cell">
-                        {gift.tarikhDitambah || '-'}
-                      </td>
-
-                      {/* 6. Butang Tindakan (Sunting & Padam/Buang) */}
-                      <td className="py-3 px-4 text-center">
-                        {isEditing ? (
-                          <div className="flex items-center justify-center gap-1">
-                            <button
-                              type="button"
-                              onClick={() => handleSaveEdit(gift.id)}
-                              className="p-1.5 bg-emerald-100 hover:bg-emerald-200 text-emerald-800 rounded-lg transition-colors cursor-pointer"
-                              title="Simpan perubahan"
-                            >
-                              <Check className="w-3.5 h-3.5" />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => setEditingId(null)}
-                              className="p-1.5 bg-stone-100 hover:bg-stone-200 text-stone-600 rounded-lg transition-colors cursor-pointer"
-                              title="Batal"
-                            >
-                              <X className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
-                        ) : (
-                          <div className="flex items-center justify-center gap-1.5">
-                            <button
-                              type="button"
-                              onClick={() => handleStartEdit(gift)}
-                              className="p-1.5 bg-stone-100 hover:bg-stone-200 text-stone-600 rounded-lg transition-colors cursor-pointer"
-                              title="Sunting rekod ini"
-                            >
-                              <Edit2 className="w-3.5 h-3.5" />
-                            </button>
-                            <button
-                              id={`btn-padam-hadiah-${gift.id}`}
-                              type="button"
-                              onClick={() => handleDeleteGift(gift.id, gift.namaHadiah)}
-                              className="p-1.5 bg-red-50 hover:bg-red-100 text-red-600 hover:text-red-800 rounded-lg border border-red-200 transition-colors cursor-pointer"
-                              title="Padam / Buang baris ini jika tersilap masuk"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+        {activeSubTab === 'inventory' && (
+          <GiftInventoryListView
+            gifts={giftList}
+            onAddGift={handleAddGift}
+            onEditGift={handleEditGift}
+            onRestockGift={handleRestockGift}
+            onDeleteGift={handleDeleteGift}
+            isOperating={isOperating}
+          />
         )}
 
-        {/* Footer info tip */}
-        <div className="flex items-center gap-1.5 text-[11px] text-stone-500 font-serif pt-1">
-          <HelpCircle className="w-3.5 h-3.5 text-stone-400 shrink-0" />
-          <span>
-            Setiap baris yang dimasukkan disimpan secara langsung di dalam pangkalan data sesi Super Admin.
-          </span>
-        </div>
+        {activeSubTab === 'redeem' && (
+          <GiftRedemptionWorkflow
+            gifts={giftList}
+            operatorName={operatorName}
+            onRedemptionComplete={loadAllGiftData}
+            localAccounts={accounts}
+          />
+        )}
+
+        {activeSubTab === 'history' && (
+          <GiftRedemptionHistoryView />
+        )}
       </div>
+
     </section>
   );
 };

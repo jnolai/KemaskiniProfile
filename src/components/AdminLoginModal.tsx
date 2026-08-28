@@ -68,7 +68,7 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
   const [rememberMe, setRememberMe] = useState(true);
   const [lockoutSeconds, setLockoutSeconds] = useState(0);
 
-  const isSuperAdminRequiredTab = targetTabKey === 'import_excel';
+  const isSuperAdminRequiredTab = targetTabKey === 'import_excel' || targetTabKey === 'gift_management';
   const isElevationMode = isAlreadyAdmin && !isAlreadySuperAdmin && isSuperAdminRequiredTab;
 
   // Lockout countdown timer

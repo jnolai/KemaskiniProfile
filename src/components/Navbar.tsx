@@ -396,31 +396,6 @@ export const Navbar: React.FC<NavbarProps> = ({
               </span>
             )}
           </button>
-
-          {/* 🔒 SUPER ADMIN ONLY: Google BigQuery Hub */}
-          <button
-            id="tab-bigquery"
-            onClick={() => handleTabClick('bigquery')}
-            className={`flex items-center gap-2 px-3.5 py-2 text-xs sm:text-sm font-medium rounded-lg transition-all whitespace-nowrap cursor-pointer ${
-              activeTab === 'bigquery'
-                ? 'bg-purple-950 text-white shadow-xs'
-                : 'text-stone-600 hover:text-stone-900 hover:bg-purple-50/60'
-            }`}
-          >
-            <Database className="w-4 h-4 text-purple-300" />
-            <span className="font-serif-heading font-semibold">Google BigQuery</span>
-            {isSuperAdmin ? (
-              <span className="inline-flex items-center gap-1 text-[10px] font-mono bg-purple-900/70 text-purple-200 border border-purple-400/40 px-1.5 py-0.2 rounded font-bold">
-                <Crown className="w-2.5 h-2.5 text-amber-400" />
-                Super Admin
-              </span>
-            ) : (
-              <span className="inline-flex items-center gap-1 text-[10px] font-mono bg-purple-100 text-purple-950 border border-purple-300 px-1.5 py-0.2 rounded font-bold">
-                <Lock className="w-2.5 h-2.5 text-purple-700" />
-                Super Admin
-              </span>
-            )}
-          </button>
         </nav>
       </div>
     </header>
