@@ -67,6 +67,10 @@ import {
   CENTRAL_APPS_SCRIPT_API_URL
 } from './services/googleSheetsService';
 import { purgeLegacyCredentials, hashPassword } from './utils/security';
+import { 
+  broadcastSyncEvent, 
+  subscribeToCrossTabSync 
+} from './services/crossPlatformSync';
 
 const STORAGE_ACCOUNTS_KEY = 'customer_portal_accounts_v6';
 const STORAGE_AUDIT_LOGS_KEY = 'customer_portal_audit_logs_v6';
@@ -359,7 +363,7 @@ export default function App() {
       }
     );
 
-    // 4. Auto re-fetch when user switches tabs or window gains focus (e.g. from Chrome to Edge or PC to Tablet)
+    // 4. Auto re-fetch when user switches tabs, reconnects to internet, or window gains focus
     const handleWindowFocus = () => {
       handleReloadFromCloud(false);
     };
@@ -370,7 +374,47 @@ export default function App() {
       }
     };
 
+    const handleNetworkOnline = () => {
+      setIsCloudConnected(true);
+      handleReloadFromCloud(false);
+    };
+
+    // 5. Cross-Tab / Cross-Window Live Auto-Sync
+    const unsubscribeCrossTab = subscribeToCrossTabSync((msg) => {
+      if (msg.type === 'ACCOUNT_UPDATED' && msg.payload?.account) {
+        const updatedAcc = msg.payload.account as CustomerAccount;
+        setAccounts((prev) => {
+          const exists = prev.some((a) => (a.id && updatedAcc.id ? a.id === updatedAcc.id : a.noAkaun.toLowerCase() === updatedAcc.noAkaun.toLowerCase()));
+          if (exists) {
+            return prev.map((a) => {
+              const isTarget = updatedAcc.id && a.id ? a.id === updatedAcc.id : a.noAkaun.toLowerCase() === updatedAcc.noAkaun.toLowerCase();
+              return isTarget ? updatedAcc : a;
+            });
+          }
+          return [updatedAcc, ...prev];
+        });
+      } else if (msg.type === 'AUDIT_LOG_ADDED' && msg.payload?.log) {
+        const newLog = msg.payload.log as ProfileUpdateAuditLog;
+        setAuditLogs((prev) => {
+          if (prev.some((l) => l.id === newLog.id)) return prev;
+          return [newLog, ...prev];
+        });
+      } else if (msg.type === 'GIFTS_UPDATED' && msg.payload?.gifts) {
+        setGifts(msg.payload.gifts);
+      } else if (msg.type === 'ACCOUNTS_BATCH_IMPORTED' || msg.type === 'FORCE_SYNC_REQUEST') {
+        handleReloadFromCloud(false);
+      }
+    });
+
+    // 6. Periodic Auto-Sync Heartbeat (every 25s for multi-device sync across https://kemaskiniprofile.pages.dev/)
+    const heartbeatInterval = setInterval(() => {
+      if (document.visibilityState === 'visible' && navigator.onLine) {
+        handleReloadFromCloud(false);
+      }
+    }, 25000);
+
     window.addEventListener('focus', handleWindowFocus);
+    window.addEventListener('online', handleNetworkOnline);
     document.addEventListener('visibilitychange', handleVisibilityChange);
 
     return () => {
@@ -378,7 +422,10 @@ export default function App() {
       unsubscribeLogs();
       unsubscribeGifts();
       unsubscribeGsConfig();
+      unsubscribeCrossTab();
+      clearInterval(heartbeatInterval);
       window.removeEventListener('focus', handleWindowFocus);
+      window.removeEventListener('online', handleNetworkOnline);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
   }, []);
@@ -519,6 +566,9 @@ export default function App() {
       console.warn('Could not sync account update to Firestore immediately:', err);
     });
 
+    // ⚡ Cross-Platform / Multi-Tab Instant Auto-Sync Broadcast
+    broadcastSyncEvent('ACCOUNT_UPDATED', { account: updatedAccountWithFlag });
+
     // ⚡ Real-Time Google Sheets Auto-Sync (if connected and enabled)
     try {
       const gsConfig = getStoredGoogleSheetsConfig();
@@ -587,6 +637,7 @@ export default function App() {
         rewardGiftRemainingStock: typeof remainingStock === 'number' ? remainingStock : targetAccount.rewardGiftRemainingStock,
       };
       saveAccountToFirestore(updatedAcc).catch(console.warn);
+      broadcastSyncEvent('ACCOUNT_UPDATED', { account: updatedAcc });
     }
 
     setAccounts((prev) =>
@@ -616,6 +667,7 @@ export default function App() {
             rewardGiftRemainingStock: typeof remainingStock === 'number' ? remainingStock : l.rewardGiftRemainingStock,
           };
           saveAuditLogToFirestore(updatedLog).catch(console.warn);
+          broadcastSyncEvent('AUDIT_LOG_ADDED', { log: updatedLog });
           return updatedLog;
         }
         return l;
@@ -627,6 +679,7 @@ export default function App() {
   const handleAddAccount = (newAcc: CustomerAccount) => {
     setAccounts((prev) => [newAcc, ...prev]);
     saveAccountToFirestore(newAcc).catch(console.warn);
+    broadcastSyncEvent('ACCOUNT_UPDATED', { account: newAcc });
   };
 
   // Handle Batch Excel Import with merge or replace modes (Memelihara 100% semua baris & membenarkan No. Akaun berulang)
@@ -637,6 +690,8 @@ export default function App() {
     batchSaveAccountsToFirestore(imported, mode).catch((err) => {
       console.warn('Firestore batch import warning:', err);
     });
+
+    broadcastSyncEvent('ACCOUNTS_BATCH_IMPORTED', { count: imported.length, mode });
 
     if (mode === 'replace') {
       setAccounts(imported);
