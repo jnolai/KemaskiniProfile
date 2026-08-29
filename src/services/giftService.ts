@@ -2,6 +2,18 @@ import { doc, setDoc, deleteDoc, onSnapshot, collection, getDocs, writeBatch } f
 import { db } from '../lib/firebase';
 import { GiftItem } from '../types';
 import { getMalaysiaDateTime } from '../utils/dateHelper';
+import { broadcastSyncEvent } from './crossPlatformSync';
+import { 
+  createBigQueryGiftApi, 
+  updateBigQueryGiftApi, 
+  deleteBigQueryGiftApi, 
+  restockBigQueryGiftApi,
+  fetchBigQueryGiftsApi 
+} from './bigQueryApiClient';
+import { 
+  syncGiftToBigQuery, 
+  deleteGiftFromBigQueryRemote 
+} from './bigQueryService';
 
 export const STORAGE_GIFTS_KEY = 'customer_portal_gifts_inventory_v1';
 const GIFTS_COLLECTION = 'gifts';
@@ -185,6 +197,7 @@ export async function clearAllGifts(): Promise<void> {
     console.warn('[Firestore] Error clearing gifts from cloud:', err);
   }
   saveGiftsLocally([]);
+  broadcastSyncEvent('GIFTS_UPDATED', { gifts: [] });
 }
 
 /**
@@ -198,6 +211,7 @@ export async function resetGiftsToSample(): Promise<GiftItem[]> {
     console.warn('[Firestore] Error resetting sample gifts to cloud:', err);
   }
   saveGiftsLocally(INITIAL_SAMPLE_GIFTS);
+  broadcastSyncEvent('GIFTS_UPDATED', { gifts: INITIAL_SAMPLE_GIFTS });
   return INITIAL_SAMPLE_GIFTS;
 }
 
@@ -299,6 +313,10 @@ export async function deductGiftStock(
   saveGiftsLocally(updatedList);
   await saveGiftToFirestore(updatedGift);
 
+  // ⚡ BigQuery & Cross-Platform Sync
+  syncGiftToBigQuery(updatedGift).catch((e) => console.warn('[BigQuery] syncGift fallback:', e));
+  broadcastSyncEvent('GIFTS_UPDATED', { gifts: updatedList });
+
   return {
     success: true,
     giftName: updatedGift.namaHadiah,
@@ -308,12 +326,15 @@ export async function deductGiftStock(
 }
 
 /**
- * Add a new gift to inventory (saves to Cloud Firestore & Local)
+ * Add a new gift to inventory (saves to BigQuery, Cloud Firestore & Local)
  */
 export async function addNewGift(
   namaHadiah: string,
   kuantiti: number,
-  catatan?: string
+  catatan?: string,
+  kategori: string = 'Umum',
+  stokMinimum: number = 5,
+  operator: string = 'Super Admin'
 ): Promise<GiftItem> {
   const formattedDate = getMalaysiaDateTime();
   const validQty = Math.max(0, Number(kuantiti) || 0);
@@ -325,6 +346,9 @@ export async function addNewGift(
     kuantitiAsal: validQty,
     bakiSemasa: validQty,
     jumlahDitebus: 0,
+    stokMinimum: stokMinimum,
+    kategori: kategori,
+    status: 'AKTIF',
     tarikhDitambah: formattedDate,
     catatan: catatan?.trim() || undefined,
   };
@@ -332,28 +356,66 @@ export async function addNewGift(
   const current = getStoredGifts();
   const updated = [newGift, ...current];
 
+  // 1. Save Local
   saveGiftsLocally(updated);
+
+  // 2. Save Cloud Firestore
   await saveGiftToFirestore(newGift);
+
+  // 3. Save to BigQuery Database (REST API & Apps Script Dual-Layer)
+  try {
+    await createBigQueryGiftApi({
+      nama_hadiah: newGift.namaHadiah,
+      kategori: newGift.kategori || 'Umum',
+      stok_semasa: newGift.kuantiti,
+      stok_minimum: newGift.stokMinimum || 5,
+      status: 'AKTIF',
+      catatan: newGift.catatan,
+      operator: operator,
+    });
+  } catch (err) {
+    console.warn('[BigQuery API] create gift fallback:', err);
+    syncGiftToBigQuery(newGift).catch(console.warn);
+  }
+
+  // 4. Broadcast instant multi-device / multi-tab synchronization
+  broadcastSyncEvent('GIFTS_UPDATED', { gifts: updated });
 
   return newGift;
 }
 
 /**
- * Remove gift by ID (deletes from Cloud Firestore & Local)
+ * Remove / Mansuhkan gift by ID (deletes from BigQuery, Cloud Firestore & Local)
  */
-export async function removeGift(giftId: string): Promise<void> {
+export async function removeGift(giftId: string, operator: string = 'Super Admin'): Promise<void> {
   const current = getStoredGifts();
   const updated = current.filter((g) => g.id !== giftId);
+
+  // 1. Save Local
   saveGiftsLocally(updated);
+
+  // 2. Delete from Cloud Firestore
   await deleteGiftFromFirestore(giftId);
+
+  // 3. Delete from BigQuery Database
+  try {
+    await deleteBigQueryGiftApi(giftId, operator);
+  } catch (err) {
+    console.warn('[BigQuery API] delete gift fallback:', err);
+    deleteGiftFromBigQueryRemote(giftId).catch(console.warn);
+  }
+
+  // 4. Broadcast instant multi-device / multi-tab synchronization
+  broadcastSyncEvent('GIFTS_UPDATED', { gifts: updated });
 }
 
 /**
- * Update existing gift (updates Cloud Firestore & Local)
+ * Update existing gift (updates BigQuery, Cloud Firestore & Local)
  */
 export async function updateGiftItem(
   giftId: string,
-  updates: Partial<GiftItem>
+  updates: Partial<GiftItem>,
+  operator: string = 'Super Admin'
 ): Promise<void> {
   const current = getStoredGifts();
   const updated = current.map((g) => {
@@ -376,10 +438,31 @@ export async function updateGiftItem(
     }
     return g;
   });
+
+  // 1. Save Local
   saveGiftsLocally(updated);
 
   const target = updated.find((g) => g.id === giftId);
   if (target) {
+    // 2. Save Cloud Firestore
     await saveGiftToFirestore(target);
+
+    // 3. Save to BigQuery Database
+    try {
+      await updateBigQueryGiftApi(giftId, {
+        nama_hadiah: target.namaHadiah,
+        kategori: target.kategori,
+        stok_minimum: target.stokMinimum,
+        status: target.status,
+        catatan: target.catatan,
+        operator: operator,
+      });
+    } catch (err) {
+      console.warn('[BigQuery API] update gift fallback:', err);
+      syncGiftToBigQuery(target).catch(console.warn);
+    }
   }
+
+  // 4. Broadcast instant multi-device / multi-tab synchronization
+  broadcastSyncEvent('GIFTS_UPDATED', { gifts: updated });
 }

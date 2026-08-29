@@ -14,6 +14,7 @@ import {
   getBigQueryGifts,
   insertBigQueryGift,
   updateBigQueryGift,
+  deleteBigQueryGift,
   restockBigQueryGift,
   processBigQueryRedemption,
   getBigQueryRedemptions,
@@ -28,7 +29,7 @@ export interface Env extends BigQueryEnvConfig {
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET, POST, PATCH, OPTIONS',
+  'Access-Control-Allow-Methods': 'GET, POST, PATCH, DELETE, OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Requested-With',
   'Content-Type': 'application/json',
 };
@@ -158,6 +159,20 @@ export async function handleApiRequest(request: Request, env: Env): Promise<Resp
       return jsonResponse({
         success: true,
         message: 'Maklumat hadiah berjaya dikemaskini.',
+      });
+    }
+
+    // 6b. DELETE /api/hadiah/:id - Delete / Mansuhkan Gift Record
+    if (giftDetailMatch && method === 'DELETE') {
+      const giftId = decodeURIComponent(giftDetailMatch[1]);
+      const operator = url.searchParams.get('operator') || 'Super Admin';
+
+      await deleteBigQueryGift(giftId, operator, env);
+
+      return jsonResponse({
+        success: true,
+        message: 'Hadiah berjaya dimansuhkan daripada inventori BigQuery.',
+        id: giftId,
       });
     }
 

@@ -1542,3 +1542,103 @@ export function generateCloudflarePagesIndexHtml(config: BigQueryConfig): string
 </html>
 `;
 }
+
+/**
+ * 🎁 Hantar / Segerak Hadiah ke BigQuery (Apps Script API & REST API)
+ */
+export async function syncGiftToBigQuery(
+  gift: GiftItem,
+  customConfig?: BigQueryConfig
+): Promise<boolean> {
+  const config = customConfig || getStoredBigQueryConfig();
+  if (!config.appsScriptUrl) {
+    return false;
+  }
+
+  try {
+    const payload = {
+      action: 'saveGift',
+      apiKey: config.apiKey || BIGQUERY_DEFAULT_API_KEY,
+      gift: {
+        id: gift.id,
+        namaHadiah: gift.namaHadiah,
+        kuantiti: gift.kuantiti,
+        kuantitiAsal: gift.kuantitiAsal || gift.kuantiti,
+        bakiSemasa: gift.bakiSemasa !== undefined ? gift.bakiSemasa : gift.kuantiti,
+        jumlahDitebus: gift.jumlahDitebus || 0,
+        tarikhDitambah: gift.tarikhDitambah || getMalaysiaDateTime(),
+        catatan: gift.catatan || '',
+      }
+    };
+
+    const res = await fetch(config.appsScriptUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+
+    const data = await res.json();
+    return !!data.success;
+  } catch (err) {
+    console.warn('[BigQueryService] syncGiftToBigQuery error:', err);
+    return false;
+  }
+}
+
+/**
+ * 🗑️ Padam / Mansuhkan Hadiah dari BigQuery (Apps Script API)
+ */
+export async function deleteGiftFromBigQueryRemote(
+  giftId: string,
+  customConfig?: BigQueryConfig
+): Promise<boolean> {
+  const config = customConfig || getStoredBigQueryConfig();
+  if (!config.appsScriptUrl) {
+    return false;
+  }
+
+  try {
+    const payload = {
+      action: 'deleteGift',
+      apiKey: config.apiKey || BIGQUERY_DEFAULT_API_KEY,
+      giftId: giftId,
+    };
+
+    const res = await fetch(config.appsScriptUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+
+    const data = await res.json();
+    return !!data.success;
+  } catch (err) {
+    console.warn('[BigQueryService] deleteGiftFromBigQueryRemote error:', err);
+    return false;
+  }
+}
+
+/**
+ * 📥 Dapatkan Senarai Hadiah Terkini dari BigQuery (Apps Script API)
+ */
+export async function fetchGiftsFromBigQueryRemote(
+  customConfig?: BigQueryConfig
+): Promise<GiftItem[]> {
+  const config = customConfig || getStoredBigQueryConfig();
+  if (!config.appsScriptUrl) {
+    return [];
+  }
+
+  try {
+    const url = `${config.appsScriptUrl}?action=getGifts&apiKey=${encodeURIComponent(config.apiKey || BIGQUERY_DEFAULT_API_KEY)}`;
+    const res = await fetch(url);
+    const data = await res.json();
+    if (data.success && Array.isArray(data.gifts)) {
+      return data.gifts;
+    }
+  } catch (err) {
+    console.warn('[BigQueryService] fetchGiftsFromBigQueryRemote error:', err);
+  }
+  return [];
+}
+

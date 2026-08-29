@@ -124,6 +124,28 @@ export class BigQueryApiClient {
   }
 
   /**
+   * 🗑️ Delete / Mansuhkan Gift from BigQuery
+   */
+  static async deleteGift(
+    giftId: string,
+    operator?: string
+  ): Promise<{ success: boolean; message: string; id: string }> {
+    const params = new URLSearchParams();
+    if (operator) params.append('operator', operator);
+
+    const res = await fetch(`${this.baseUrl}/api/hadiah/${encodeURIComponent(giftId)}?${params.toString()}`, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+    });
+
+    const data = await res.json() as any;
+    if (!res.ok || !data.success) {
+      throw new Error(data.error || 'Gagal memansuhkan hadiah daripada BigQuery.');
+    }
+    return data;
+  }
+
+  /**
    * 📦 Restock Gift Inventory
    */
   static async restockGift(
@@ -219,6 +241,8 @@ export const createBigQueryGiftApi = (gift: {
 });
 export const updateBigQueryGiftApi = (id: string, updates: Parameters<typeof BigQueryApiClient.updateGift>[1]) => 
   BigQueryApiClient.updateGift(id, updates);
+export const deleteBigQueryGiftApi = (id: string, op?: string) =>
+  BigQueryApiClient.deleteGift(id, op);
 export const restockBigQueryGiftApi = (id: string, qty: number, note?: string, op?: string) => 
   BigQueryApiClient.restockGift(id, qty, note, op);
 export const executeBigQueryGiftRedemptionApi = (redemption: Parameters<typeof BigQueryApiClient.processRedemption>[0]) => 

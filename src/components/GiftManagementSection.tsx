@@ -30,6 +30,7 @@ import {
   fetchBigQueryGiftsApi, 
   createBigQueryGiftApi, 
   updateBigQueryGiftApi, 
+  deleteBigQueryGiftApi,
   restockBigQueryGiftApi,
   fetchBigQueryGiftDashboardMetricsApi,
   fetchBigQueryRedemptionsApi 
@@ -146,70 +147,67 @@ export const GiftManagementSection: React.FC<GiftManagementSectionProps> = ({
   const handleAddGift = async (data: { nama: string; kuantiti: number; stokMinimum: number; kategori: string; catatan: string }) => {
     setIsOperating(true);
     try {
-      // 1. Send to BigQuery API
-      await createBigQueryGiftApi({
-        nama_hadiah: data.nama,
-        kategori: data.kategori,
-        stok_semasa: data.kuantiti,
-        stok_minimum: data.stokMinimum,
-        catatan: data.catatan
-      });
+      await addNewGift(
+        data.nama, 
+        data.kuantiti, 
+        data.catatan, 
+        data.kategori || 'Umum', 
+        data.stokMinimum || 5, 
+        operatorName
+      );
 
-      // 2. Also persist to Firestore
-      await addNewGift(data.nama, data.kuantiti, data.catatan);
-
-      showSuccess('Hadiah Disimpan', `"${data.nama}" (${data.kuantiti} unit) berjaya didaftarkan ke inventori awan.`);
+      showSuccess('Hadiah Disimpan & Direkodkan', `"${data.nama}" (${data.kuantiti} unit) berjaya didaftarkan ke BigQuery dan diselaraskan ke semua peranti.`);
       await loadAllGiftData();
     } catch (err: any) {
-      // Fallback
-      await addNewGift(data.nama, data.kuantiti, data.catatan);
-      showSuccess('Hadiah Disimpan', `"${data.nama}" disimpan ke inventori sistem.`);
-      await loadAllGiftData();
+      showError('Ralat Mendaftar Hadiah', err?.message || 'Gagal menyimpan hadiah ke BigQuery.');
     } finally {
       setIsOperating(false);
     }
   };
 
-  // Handler: Edit Gift (Cloud + Local)
+  // Handler: Edit Gift (BigQuery + Firestore + Local)
   const handleEditGift = async (id: string, updates: { namaHadiah: string; kuantiti: number; stokMinimum: number; kategori?: string; status?: string }) => {
     setIsOperating(true);
     try {
-      await updateBigQueryGiftApi(id, {
-        nama_hadiah: updates.namaHadiah,
-        kategori: updates.kategori,
-        stok_minimum: updates.stokMinimum,
-        status: updates.status
-      });
+      await updateGiftItem(
+        id, 
+        {
+          namaHadiah: updates.namaHadiah,
+          kuantiti: updates.kuantiti,
+          kuantitiAsal: updates.kuantiti,
+          stokMinimum: updates.stokMinimum,
+          kategori: updates.kategori,
+          status: updates.status as any,
+        },
+        operatorName
+      );
 
-      await updateGiftItem(id, {
-        namaHadiah: updates.namaHadiah,
-        kuantiti: updates.kuantiti,
-        kuantitiAsal: updates.kuantiti,
-      });
-
-      showSuccess('Kemaskini Berjaya', `Maklumat hadiah telah dikemaskini dalam pangkalan data.`);
+      showSuccess('Kemaskini Berjaya', `Maklumat hadiah telah dikemaskini dalam BigQuery & disegerakkan.`);
       await loadAllGiftData();
-    } catch (err) {
-      await updateGiftItem(id, {
-        namaHadiah: updates.namaHadiah,
-        kuantiti: updates.kuantiti,
-        kuantitiAsal: updates.kuantiti,
-      });
-      showSuccess('Kemaskini Selesai', 'Maklumat hadiah disimpan.');
-      await loadAllGiftData();
+    } catch (err: any) {
+      showError('Ralat Mengemaskini Hadiah', err?.message || 'Gagal mengemaskini maklumat hadiah.');
     } finally {
       setIsOperating(false);
     }
   };
 
-  // Handler: Restock Gift (Cloud + Local)
+  // Handler: Restock Gift (BigQuery + Firestore + Local)
   const handleRestockGift = async (id: string, addedQty: number, catatan: string) => {
     setIsOperating(true);
     try {
-      await restockBigQueryGiftApi(id, addedQty, catatan);
-      showSuccess('Stok Ditambah', `Sebanyak +${addedQty} unit telah ditambah ke dalam inventori.`);
+      await restockBigQueryGiftApi(id, addedQty, catatan, operatorName);
+      
+      // Update local & firestore as well
+      const existing = giftList.find(g => g.id === id);
+      if (existing) {
+        const newTotal = (existing.kuantiti || 0) + addedQty;
+        const newBaki = (existing.bakiSemasa !== undefined ? existing.bakiSemasa : existing.kuantiti) + addedQty;
+        await updateGiftItem(id, { kuantiti: newTotal, kuantitiAsal: newTotal, bakiSemasa: newBaki }, operatorName);
+      }
+
+      showSuccess('Stok Ditambah & Direkodkan', `Sebanyak +${addedQty} unit telah ditambah ke dalam inventori BigQuery.`);
       await loadAllGiftData();
-    } catch (err) {
+    } catch (err: any) {
       showWarning('Penambahan Stok Tempatan', 'Stok telah dikemaskini dalam pangkalan data.');
       await loadAllGiftData();
     } finally {
@@ -217,17 +215,17 @@ export const GiftManagementSection: React.FC<GiftManagementSectionProps> = ({
     }
   };
 
-  // Handler: Delete Gift
+  // Handler: Delete / Mansuhkan Gift (BigQuery + Firestore + Local)
   const handleDeleteGift = async (id: string, nama: string) => {
-    if (!window.confirm(`Adakah anda pasti ingin memadam hadiah "${nama}"?`)) return;
+    if (!window.confirm(`Adakah anda pasti ingin memansuhkan hadiah "${nama}" daripada inventori BigQuery? Tindakan ini akan direkodkan.`)) return;
 
     setIsOperating(true);
     try {
-      await removeGift(id);
-      showInfo('Hadiah Dipadam', `Rekod "${nama}" telah dipadam.`);
+      await removeGift(id, operatorName);
+      showInfo('Hadiah Dimansuhkan', `Rekod "${nama}" telah dimansuhkan daripada BigQuery dan dipadam daripada semua peranti.`);
       await loadAllGiftData();
-    } catch (err) {
-      showError('Ralat Memadam', 'Gagal memadam hadiah.');
+    } catch (err: any) {
+      showError('Ralat Memansuhkan Hadiah', err?.message || 'Gagal memansuhkan hadiah daripada BigQuery.');
     } finally {
       setIsOperating(false);
     }

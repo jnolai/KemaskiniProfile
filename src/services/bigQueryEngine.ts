@@ -300,6 +300,25 @@ export async function updateBigQueryGift(
 }
 
 /**
+ * 🗑️ 3b. Delete / Mansuhkan Gift from BigQuery `hadiah`
+ */
+export async function deleteBigQueryGift(
+  id: string,
+  operator: string = 'Super Admin',
+  env: BigQueryEnvConfig
+): Promise<void> {
+  const projectId = env.GOOGLE_CLOUD_PROJECT || DEFAULT_PROJECT;
+  const datasetId = env.BIGQUERY_DATASET || DEFAULT_DATASET;
+
+  const sql = `
+    DELETE FROM \`${projectId}.${datasetId}.hadiah\`
+    WHERE id = @id
+  `;
+
+  await executeBigQuerySql(sql, { id }, env);
+}
+
+/**
  * 🎁 4. Restock Gift Inventory (Add Stock with Audit Trail)
  */
 export async function restockBigQueryGift(
