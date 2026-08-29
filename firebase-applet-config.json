@@ -1,12 +1,12 @@
 {
-  "projectId": "gen-lang-client-0958142642",
-  "appId": "1:156465687646:web:ee470eb178bccc88d198cf",
-  "apiKey": "AIzaSyCnLS2J9YW3xV7pR_q0Wc0v5OnZWlC139U",
-  "authDomain": "gen-lang-client-0958142642.firebaseapp.com",
-  "firestoreDatabaseId": "ai-studio-portalkemaskinip-6ea40a63-ae58-4f41-bd64-8bc7351a8d87",
-  "storageBucket": "gen-lang-client-0958142642.firebasestorage.app",
-  "messagingSenderId": "156465687646",
+  "projectId": "ekemaskini-prod",
+  "appId": "1:106984339879:web:a8c400e53b6dd288211e82",
+  "apiKey": "AIzaSyDKx9zUBfXOZN0AamogR2XoSBsd0iv9RYg",
+  "authDomain": "ekemaskini-prod.firebaseapp.com",
+  "firestoreDatabaseId": "(default)",
+  "storageBucket": "ekemaskini-prod.firebasestorage.app",
+  "messagingSenderId": "106984339879",
   "measurementId": "",
-  "oAuthClientId": "156465687646-7kchfvdc18ovn7f58fvgg25ivsn0bgn0.apps.googleusercontent.com",
+  "oAuthClientId": "",
   "recaptchaSiteKey": ""
 }
